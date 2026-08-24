@@ -34,7 +34,7 @@ jobs:
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: ../nigenje-lambda-safe-compiler-open-v0.1.0.zip
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             ../nigenje-lambda-safe-compiler-open-v0.1.0.zip
