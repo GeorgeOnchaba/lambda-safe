@@ -41,7 +41,7 @@ jobs:
         run: ./scripts/smoke-test.sh target/release/lambda-safe
       - name: Archive test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: source-verification-metadata
           path: |
