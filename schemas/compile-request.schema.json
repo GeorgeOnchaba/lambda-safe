@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nigenje.com/schemas/lambda-safe/0.1/compile-request.schema.json",
+  "title": "λ-Safe Compile Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source"],
+  "properties": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "content"],
+      "properties": {
+        "format": {"enum": ["auto", "lambda", "json"]},
+        "content": {"type": "string", "maxLength": 1048576}
+      }
+    }
+  }
+}
+

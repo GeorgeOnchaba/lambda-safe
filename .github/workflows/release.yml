@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85.0
+          components: rustfmt, clippy
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install --yes z3 zip
+      - name: Verify
+        run: ./scripts/verify.sh
+      - name: Package
+        run: ./scripts/package.sh > source-sha256.txt
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: source.spdx.json
+      - name: Attest source archive
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ../nigenje-lambda-safe-compiler-open-v0.1.0.zip
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ../nigenje-lambda-safe-compiler-open-v0.1.0.zip
+            source-sha256.txt
+            source.spdx.json
+          fail_on_unmatched_files: true

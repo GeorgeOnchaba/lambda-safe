@@ -1,0 +1,9 @@
+lambda_safe "0.1";
+contract units version "1.0.0" {
+  unit bytes;
+  unit milliseconds;
+  input memory: int<bytes> authority control_plane range [0, 8];
+  input latency: int<milliseconds> authority control_plane range [0, 8];
+  invariant impossible_comparison hard: memory <= latency;
+}
+

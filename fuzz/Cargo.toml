@@ -1,0 +1,40 @@
+[package]
+name = "lambda-safe-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+lambda-safe-compiler = { path = "../crates/lambda-safe-compiler" }
+lambda-safe-emit = { path = "../crates/lambda-safe-emit" }
+lambda-safe-model = { path = "../crates/lambda-safe-model" }
+lambda-safe-solver = { path = "../crates/lambda-safe-solver" }
+lambda-safe-syntax = { path = "../crates/lambda-safe-syntax" }
+
+[[bin]]
+name = "contract_text"
+path = "fuzz_targets/contract_text.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "contract_json"
+path = "fuzz_targets/contract_json.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "artifact_verify"
+path = "fuzz_targets/artifact_verify.rs"
+test = false
+doc = false
+bench = false

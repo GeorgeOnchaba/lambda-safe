@@ -1,0 +1,1151 @@
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/.github/workflows/fuzz.yml nigenje-lambda-safe-compiler-open-v0.1.0/.github/workflows/fuzz.yml
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/.github/workflows/fuzz.yml	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/.github/workflows/fuzz.yml	2026-08-24 12:51:06.017607585 +0000
+@@ -14,7 +14,7 @@
+     strategy:
+       fail-fast: false
+       matrix:
+-        target: [contract_text, contract_json]
++        target: [contract_text, contract_json, artifact_verify]
+     steps:
+       - uses: actions/checkout@v4
+       - uses: dtolnay/rust-toolchain@nightly
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/README.md nigenje-lambda-safe-compiler-open-v0.1.0/README.md
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/README.md	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/README.md	2026-08-24 12:51:48.331214284 +0000
+@@ -79,7 +79,7 @@
+ | `lambda-safe-service` | Stateless Axum HTTP service |
+ 
+ The repository also includes JSON Schemas, valid and invalid examples,
+-conformance/adversarial/property tests, fuzz targets, benchmarks, CI, container
++conformance/adversarial/property/stress tests, fuzz targets, scale benchmarks, CI, container
+ and Kubernetes resources, and a research traceability matrix.
+ 
+ ## Prerequisites
+@@ -197,7 +197,9 @@
+ 
+ Compilation is resource bounded: input size, expression nesting/nodes,
+ declarations, generated obligations, concurrent HTTP requests, finite-domain
+-states and each solver call all have explicit limits.
++states, each solver call, and the complete compilation wall-clock budget all have explicit limits.
++The default whole-compilation budget is 30 seconds (`LAMBDA_SAFE_MAX_COMPILE_MS=30000`),
++so many individually legal solver obligations cannot accumulate into an unbounded worker hold.
+ 
+ ## Optional certificate signing
+ 
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-cli/src/main.rs nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-cli/src/main.rs
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-cli/src/main.rs	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-cli/src/main.rs	2026-08-24 12:49:10.732882945 +0000
+@@ -34,6 +34,10 @@
+     #[arg(long, global = true, default_value_t = 5_000, env = "LAMBDA_SAFE_TIMEOUT_MS")]
+     timeout_ms: u64,
+ 
++    /// Maximum wall-clock budget for one complete compilation in milliseconds.
++    #[arg(long, global = true, default_value_t = 30_000, env = "LAMBDA_SAFE_MAX_COMPILE_MS")]
++    max_compile_ms: u64,
++
+     /// Maximum input size in bytes.
+     #[arg(long, global = true, default_value_t = 1_048_576, env = "LAMBDA_SAFE_MAX_SOURCE_BYTES")]
+     max_source_bytes: usize,
+@@ -149,6 +153,7 @@
+         max_source_bytes: cli.max_source_bytes,
+         max_solver_obligations: cli.max_solver_obligations,
+         solver_timeout: Duration::from_millis(cli.timeout_ms),
++        max_compile_time: Duration::from_millis(cli.max_compile_ms),
+         ..CompilerConfig::default()
+     };
+ 
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/benches/compile.rs nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/benches/compile.rs
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/benches/compile.rs	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/benches/compile.rs	2026-08-24 12:51:05.570549498 +0000
+@@ -1,20 +1,44 @@
+-use criterion::{Criterion, criterion_group, criterion_main};
++use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+ use lambda_safe_compiler::{Compiler, CompilerConfig, SourceFormat};
+ use lambda_safe_solver::FiniteModelSolver;
+ use std::hint::black_box;
+ use std::sync::Arc;
+ 
+-fn compile_benchmark(criterion: &mut Criterion) {
+-    let compiler = Compiler::new(
++fn compiler() -> Compiler {
++    Compiler::new(
+         Arc::new(FiniteModelSolver::default()),
+         CompilerConfig::default(),
++    )
++}
++
++fn generated_contract(invariants: usize) -> String {
++    let mut source = String::from(
++        "lambda_safe \"0.1\";\ncontract benchmark version \"1\" {\n  unit count;\n  const limit: int<count> = 2;\n  input x: int<count> authority control_plane range [0, 2];\n  assume bounded hard: x <= limit;\n",
+     );
++    for index in 0..invariants {
++        source.push_str(&format!("  invariant inv_{index} hard: x <= limit;\n"));
++    }
++    source.push_str("}\n");
++    source
++}
++
++fn compile_benchmark(criterion: &mut Criterion) {
++    let compiler = compiler();
+     let source = include_str!("../../../examples/valid/routing.lambda");
+     criterion.bench_function("compile_valid_small_contract", |bencher| {
+         bencher.iter(|| compiler.compile(black_box(source), SourceFormat::Lambda));
+     });
++
++    let mut group = criterion.benchmark_group("generated_invariant_scale");
++    for count in [1_usize, 25, 100, 500] {
++        let source = generated_contract(count);
++        group.throughput(Throughput::Elements(count as u64));
++        group.bench_with_input(BenchmarkId::from_parameter(count), &source, |bencher, source| {
++            bencher.iter(|| compiler.compile(black_box(source.as_str()), SourceFormat::Lambda));
++        });
++    }
++    group.finish();
+ }
+ 
+ criterion_group!(benches, compile_benchmark);
+ criterion_main!(benches);
+-
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/src/lib.rs nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/src/lib.rs
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/src/lib.rs	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/src/lib.rs	2026-08-24 12:48:58.288302852 +0000
+@@ -14,7 +14,7 @@
+ use serde::{Deserialize, Serialize};
+ use std::fmt;
+ use std::sync::Arc;
+-use std::time::Duration;
++use std::time::{Duration, Instant};
+ 
+ /// Runtime limits and optional artifact-signing configuration.
+ #[derive(Clone)]
+@@ -23,6 +23,10 @@
+     pub max_source_bytes: usize,
+     /// Deadline for each solver obligation.
+     pub solver_timeout: Duration,
++    /// Wall-clock budget for one complete compilation, including parsing, checking,
++    /// solver obligations and artifact emission. No individual solver call may
++    /// consume more than the remaining compilation budget.
++    pub max_compile_time: Duration,
+     /// Static analysis limits.
+     pub checks: CheckConfig,
+     /// Maximum number of solver obligations generated by one compilation.
+@@ -38,6 +42,7 @@
+             .debug_struct("CompilerConfig")
+             .field("max_source_bytes", &self.max_source_bytes)
+             .field("solver_timeout", &self.solver_timeout)
++            .field("max_compile_time", &self.max_compile_time)
+             .field("checks", &self.checks)
+             .field("max_solver_obligations", &self.max_solver_obligations)
+             .field("signing_key", &self.signing_key.as_ref().map(|_| "[REDACTED]"))
+@@ -50,6 +55,7 @@
+         Self {
+             max_source_bytes: 1_048_576,
+             solver_timeout: Duration::from_secs(5),
++            max_compile_time: Duration::from_secs(30),
+             checks: CheckConfig::default(),
+             max_solver_obligations: 2_048,
+             signing_key: None,
+@@ -174,6 +180,13 @@
+     /// Runs the complete fail-closed compilation pipeline.
+     #[must_use]
+     pub fn compile(&self, source: &str, format: SourceFormat) -> CompileResult {
++        let started = Instant::now();
++        let Some(deadline) = started.checked_add(self.config.max_compile_time) else {
++            return CompileResult::failed(
++                CompileStatus::Indeterminate,
++                vec![Diagnostic::error(codes::RESOURCE_LIMIT, "configured compilation deadline overflowed the platform clock")],
++            );
++        };
+         if let Some(diagnostic) = self.source_limit_diagnostic(source) {
+             return CompileResult::failed(CompileStatus::Indeterminate, vec![diagnostic]);
+         }
+@@ -192,7 +205,13 @@
+                 return CompileResult::failed(failure.status, failure.diagnostics);
+             }
+         };
+-        self.discharge(&checked)
++        if Instant::now() >= deadline {
++            return resource_indeterminate(&checked, format!(
++                "compilation exceeded the configured wall-clock budget of {} ms before solver discharge",
++                duration_ms_u64(self.config.max_compile_time),
++            ));
++        }
++        self.discharge(&checked, deadline)
+     }
+ 
+     /// Verifies a manifest/certificate pair without invoking the SMT solver.
+@@ -205,7 +224,7 @@
+         verify_artifacts(manifest, certificate)
+     }
+ 
+-    fn discharge(&self, checked: &CheckedContract) -> CompileResult {
++    fn discharge(&self, checked: &CheckedContract, deadline: Instant) -> CompileResult {
+         let solver_identity = self.solver.identity();
+         if solver_identity.name.is_empty()
+             || solver_identity.version.is_empty()
+@@ -252,7 +271,7 @@
+             symbols: symbols.clone(),
+             assertions: assumptions.clone(),
+         };
+-        match self.solve(&feasibility) {
++        match self.solve(&feasibility, deadline) {
+             Ok(DecisionResult::Sat(counterexample)) => records.push(VerificationRecord {
+                 obligation_id: feasibility.id,
+                 obligation_kind: "context_feasibility".to_owned(),
+@@ -297,7 +316,7 @@
+                 symbols: symbols.clone(),
+                 assertions,
+             };
+-            match self.solve(&query) {
++            match self.solve(&query, deadline) {
+                 Ok(DecisionResult::Unsat) => records.push(VerificationRecord {
+                     obligation_id: query.id,
+                     obligation_kind: "invariant_validity".to_owned(),
+@@ -425,7 +444,7 @@
+                         symbols: symbols.clone(),
+                         assertions,
+                     };
+-                    match self.solve(&query) {
++                    match self.solve(&query, deadline) {
+                         Ok(DecisionResult::Unsat) => records.push(VerificationRecord {
+                             obligation_id: query.id,
+                             obligation_kind: "transition_preservation".to_owned(),
+@@ -515,8 +534,13 @@
+         }
+     }
+ 
+-    fn solve(&self, query: &SolverQuery) -> Result<DecisionResult, SolverError> {
+-        self.solver.solve(query, self.config.solver_timeout)
++    fn solve(&self, query: &SolverQuery, deadline: Instant) -> Result<DecisionResult, SolverError> {
++        let remaining = deadline.saturating_duration_since(Instant::now());
++        if remaining.is_zero() {
++            return Err(SolverError::Timeout(duration_ms_u64(self.config.max_compile_time)));
++        }
++        let timeout = self.config.solver_timeout.min(remaining);
++        self.solver.solve(query, timeout)
+     }
+ 
+     fn source_limit_diagnostic(&self, source: &str) -> Option<Diagnostic> {
+@@ -552,6 +576,10 @@
+     }
+ }
+ 
++fn duration_ms_u64(duration: Duration) -> u64 {
++    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
++}
++
+ fn summary(checked: &CheckedContract) -> CheckSummary {
+     CheckSummary {
+         contract_id: checked.contract_id.clone(),
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/adversarial.rs nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/adversarial.rs
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/adversarial.rs	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/adversarial.rs	2026-08-24 12:52:30.348594522 +0000
+@@ -193,3 +193,64 @@
+     assert!(result.verification.iter().any(|record| record.counterexample.is_some()));
+     assert!(result.artifacts.is_none());
+ }
++
++#[derive(Debug)]
++struct DeadlineHonoringSolver;
++
++impl DecisionProcedure for DeadlineHonoringSolver {
++    fn identity(&self) -> SolverIdentity {
++        SolverIdentity {
++            name: "deadline-test-double".to_owned(),
++            version: "1".to_owned(),
++            theory: "QF_LIA".to_owned(),
++            options: BTreeMap::new(),
++        }
++    }
++
++    fn solve(
++        &self,
++        _query: &SolverQuery,
++        timeout: Duration,
++    ) -> Result<DecisionResult, SolverError> {
++        let work = Duration::from_millis(15);
++        if timeout < work {
++            std::thread::sleep(timeout);
++            return Err(SolverError::Timeout(timeout.as_millis() as u64));
++        }
++        std::thread::sleep(work);
++        Ok(DecisionResult::Sat(Counterexample {
++            assignments: BTreeMap::new(),
++            raw_model: None,
++        }))
++    }
++}
++
++#[test]
++fn whole_compilation_deadline_is_fail_closed() {
++    let config = CompilerConfig {
++        solver_timeout: Duration::from_secs(5),
++        max_compile_time: Duration::from_millis(25),
++        ..CompilerConfig::default()
++    };
++    let compiler = Compiler::new(Arc::new(DeadlineHonoringSolver), config);
++    let started = std::time::Instant::now();
++    let result = compiler.compile(valid_source(), SourceFormat::Lambda);
++    assert_eq!(result.status, CompileStatus::Indeterminate);
++    assert!(result.artifacts.is_none());
++    assert!(started.elapsed() < Duration::from_millis(250));
++}
++
++#[test]
++fn zero_compilation_budget_never_emits_artifacts() {
++    let config = CompilerConfig {
++        max_compile_time: Duration::ZERO,
++        ..CompilerConfig::default()
++    };
++    let compiler = Compiler::new(
++        Arc::new(lambda_safe_solver::FiniteModelSolver::default()),
++        config,
++    );
++    let result = compiler.compile(valid_source(), SourceFormat::Lambda);
++    assert_eq!(result.status, CompileStatus::Indeterminate);
++    assert!(result.artifacts.is_none());
++}
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/stress.rs nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/stress.rs
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/stress.rs	1970-01-01 00:00:00.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/stress.rs	2026-08-24 12:49:40.119078660 +0000
+@@ -0,0 +1,67 @@
++use lambda_safe_compiler::{Compiler, CompilerConfig, SourceFormat};
++use lambda_safe_model::CompileStatus;
++use lambda_safe_solver::FiniteModelSolver;
++use std::sync::Arc;
++
++fn generated_contract(invariants: usize) -> String {
++    let mut source = String::from(
++        "lambda_safe \"0.1\";\ncontract generated_stress version \"1\" {\n  unit count;\n  const limit: int<count> = 2;\n  input x: int<count> authority control_plane range [0, 2];\n  assume bounded hard: x <= limit;\n",
++    );
++    for index in 0..invariants {
++        source.push_str(&format!("  invariant inv_{index} hard: x <= limit;\n"));
++    }
++    source.push_str("}\n");
++    source
++}
++
++fn compiler(config: CompilerConfig) -> Compiler {
++    Compiler::new(Arc::new(FiniteModelSolver::default()), config)
++}
++
++#[test]
++fn large_generated_contract_certifies_within_supported_bounds() {
++    let source = generated_contract(512);
++    let result = compiler(CompilerConfig::default()).compile(&source, SourceFormat::Lambda);
++    assert_eq!(result.status, CompileStatus::StaticallyCertified);
++    assert!(result.artifacts.is_some());
++    assert_eq!(result.verification.len(), 513);
++}
++
++#[test]
++fn obligation_boundary_rejects_before_any_solver_work() {
++    let config = CompilerConfig {
++        max_solver_obligations: 64,
++        ..CompilerConfig::default()
++    };
++    let result = compiler(config).compile(&generated_contract(64), SourceFormat::Lambda);
++    assert_eq!(result.status, CompileStatus::Indeterminate);
++    assert!(result.verification.is_empty());
++    assert!(result.artifacts.is_none());
++}
++
++#[test]
++fn parallel_compilation_is_deterministic() {
++    let source = Arc::new(generated_contract(64));
++    let baseline = compiler(CompilerConfig::default())
++        .compile(source.as_str(), SourceFormat::Lambda)
++        .artifacts
++        .expect("baseline should certify")
++        .certificate
++        .certificate_digest;
++
++    let mut handles = Vec::new();
++    for _ in 0..16 {
++        let source = Arc::clone(&source);
++        handles.push(std::thread::spawn(move || {
++            compiler(CompilerConfig::default())
++                .compile(source.as_str(), SourceFormat::Lambda)
++                .artifacts
++                .expect("parallel compile should certify")
++                .certificate
++                .certificate_digest
++        }));
++    }
++    for handle in handles {
++        assert_eq!(handle.join().expect("worker should not panic"), baseline);
++    }
++}
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-service/src/main.rs nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-service/src/main.rs
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-service/src/main.rs	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-service/src/main.rs	2026-08-24 12:49:10.742796035 +0000
+@@ -97,6 +97,7 @@
+         max_source_bytes: settings.max_source_bytes,
+         max_solver_obligations: settings.max_solver_obligations,
+         solver_timeout: Duration::from_millis(settings.timeout_ms),
++        max_compile_time: Duration::from_millis(settings.max_compile_ms),
+         ..CompilerConfig::default()
+     };
+     if let Some(path) = &settings.signing_key_file {
+@@ -378,6 +379,7 @@
+     solver: String,
+     z3_path: PathBuf,
+     timeout_ms: u64,
++    max_compile_ms: u64,
+     max_source_bytes: usize,
+     max_body_bytes: usize,
+     max_solver_obligations: usize,
+@@ -394,6 +396,7 @@
+             solver: value("LAMBDA_SAFE_SOLVER", "z3"),
+             z3_path: PathBuf::from(value("LAMBDA_SAFE_Z3_PATH", "z3")),
+             timeout_ms: parse_value("LAMBDA_SAFE_TIMEOUT_MS", 5_000)?,
++            max_compile_ms: parse_value("LAMBDA_SAFE_MAX_COMPILE_MS", 30_000)?,
+             max_source_bytes: parse_value("LAMBDA_SAFE_MAX_SOURCE_BYTES", 1_048_576)?,
+             max_body_bytes: parse_value("LAMBDA_SAFE_MAX_BODY_BYTES", 1_200_000)?,
+             max_solver_obligations: parse_value(
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/api.md nigenje-lambda-safe-compiler-open-v0.1.0/docs/api.md
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/api.md	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/docs/api.md	2026-08-24 12:51:48.331005985 +0000
+@@ -10,6 +10,7 @@
+ | `LAMBDA_SAFE_SOLVER` | `z3` | `z3` or exact bounded `finite` |
+ | `LAMBDA_SAFE_Z3_PATH` | `z3` | Z3 executable |
+ | `LAMBDA_SAFE_TIMEOUT_MS` | `5000` | Deadline per solver obligation |
++| `LAMBDA_SAFE_MAX_COMPILE_MS` | `30000` | Wall-clock budget for one complete compilation |
+ | `LAMBDA_SAFE_MAX_SOURCE_BYTES` | `1048576` | Compiler source limit |
+ | `LAMBDA_SAFE_MAX_BODY_BYTES` | `1200000` | HTTP body limit |
+ | `LAMBDA_SAFE_MAX_SOLVER_OBLIGATIONS` | `2048` | Maximum generated obligations per compile |
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/security.md nigenje-lambda-safe-compiler-open-v0.1.0/docs/security.md
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/security.md	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/docs/security.md	2026-08-24 12:51:48.331346620 +0000
+@@ -29,7 +29,7 @@
+ | Artifact substitution | Manifest/certificate SHA-256 binding and reconstructed hard-input digest |
+ | Partial or accidental artifact replacement | Immutable CLI output path and staged directory publication |
+ | Signature confusion | Ed25519 algorithm id and public key embedded in signature record |
+-| Resource exhaustion | Source, token, nesting, node, obligation, concurrency, solver-time and finite-state limits |
++| Resource exhaustion | Source, token, nesting, node, obligation, concurrency, per-solver, whole-compilation and finite-state limits |
+ | Ambiguous JSON member shadowing | Duplicate and unknown object members are rejected recursively |
+ | Command injection | Z3 path is an executable argument; source is sent through stdin |
+ | Nondeterminism | Sorted hard projection and JCS serialization |
+@@ -57,3 +57,7 @@
+ - Unicode confusables in free-form human strings; identifiers themselves are
+   restricted to ASCII.
+ - No mechanized compiler-correctness or proof-assistant proof in v0.1.
++
++### Whole-compilation deadline
++
++Per-obligation timeouts are not sufficient against contracts that generate many expensive obligations. The compiler therefore starts a wall-clock deadline at the beginning of `compile`; every solver call receives the smaller of the configured per-obligation timeout and the remaining compilation budget. Exhaustion maps to `INDETERMINATE` and never emits artifacts.
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/testing.md nigenje-lambda-safe-compiler-open-v0.1.0/docs/testing.md
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/testing.md	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/docs/testing.md	2026-08-24 12:51:48.331296997 +0000
+@@ -6,11 +6,11 @@
+ |---|---|
+ | Unit | Parser precedence, typing, normalization, solver encoding, canonicalization |
+ | Conformance | 120 generated bounded QF-LIA contracts with expected outcomes |
+-| Adversarial | Fail-closed and non-elevation attacks |
++| Adversarial | Fail-closed, deadline, tamper and non-elevation attacks |
+ | Integration | End-to-end text/JSON compilation and artifact verification |
+ | Property | Parser robustness and deterministic behavior over generated inputs |
+-| Fuzz | Arbitrary bytes into both source formats and the compile facade |
+-| Benchmark | Detect material regression in bounded end-to-end compilation |
++| Fuzz | Arbitrary bytes into both source formats, the compile facade and artifact verification |
++| Benchmark | Scale end-to-end compilation across 1/25/100/500 hard invariants |
+ | Service | Routing, body handling and status mapping |
+ 
+ ## Required release commands
+@@ -19,7 +19,9 @@
+ cargo fmt --all --check
+ cargo clippy --workspace --all-targets --all-features -- -D warnings
+ cargo test --workspace --all-features
+-cargo test -p lambda-safe-compiler --test conformance
++cargo test -p lambda-safe-compiler --test conformance --locked
++cargo test -p lambda-safe-compiler --test adversarial --locked
++cargo test -p lambda-safe-compiler --test stress --locked
+ cargo build --workspace --release --locked
+ ./scripts/smoke-test.sh target/release/lambda-safe
+ ```
+@@ -45,3 +47,7 @@
+ 4. timeout/unknown behavior;
+ 5. canonical artifact stability;
+ 6. an adversarial boundary case.
++
++## Stress qualification
++
++The stress suite includes a 512-invariant supported contract, obligation-limit fail-closed behavior, 16-way parallel deterministic compilation, and a compilation-wide deadline adversarial test. Criterion reports latency distributions for generated contracts at 1, 25, 100 and 500 hard invariants. `scripts/qualification.sh` runs the deterministic qualification surface; duration-based fuzzing remains a separate workflow.
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/trust-model.md nigenje-lambda-safe-compiler-open-v0.1.0/docs/trust-model.md
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/trust-model.md	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/docs/trust-model.md	2026-08-24 12:51:48.331389945 +0000
+@@ -74,8 +74,7 @@
+ 
+ - Pin the Rust toolchain, dependencies, container digest and Z3 version.
+ - Place the service behind authentication and network policy.
+-- Apply a reverse-proxy request deadline longer than the per-obligation timeout
+-  but bounded for the maximum permitted obligation count.
++- Keep a reverse-proxy request deadline slightly above `LAMBDA_SAFE_MAX_COMPILE_MS`. The compiler itself enforces a whole-compilation wall-clock budget in addition to the per-obligation timeout.
+ - Use a read-only root filesystem and non-root user.
+ - Keep signing keys in KMS/HSM-backed storage; a mounted key file is a portable
+   reference path, not the preferred enterprise custody mechanism.
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/Cargo.toml nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/Cargo.toml
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/Cargo.toml	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/Cargo.toml	2026-08-24 12:51:06.017483531 +0000
+@@ -10,6 +10,8 @@
+ [dependencies]
+ libfuzzer-sys = "0.4"
+ lambda-safe-compiler = { path = "../crates/lambda-safe-compiler" }
++lambda-safe-emit = { path = "../crates/lambda-safe-emit" }
++lambda-safe-model = { path = "../crates/lambda-safe-model" }
+ lambda-safe-solver = { path = "../crates/lambda-safe-solver" }
+ lambda-safe-syntax = { path = "../crates/lambda-safe-syntax" }
+ 
+@@ -29,3 +31,10 @@
+ 
+ [workspace]
+ members = ["."]
++
++[[bin]]
++name = "artifact_verify"
++path = "fuzz_targets/artifact_verify.rs"
++test = false
++doc = false
++bench = false
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/fuzz_targets/artifact_verify.rs nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/fuzz_targets/artifact_verify.rs
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/fuzz_targets/artifact_verify.rs	1970-01-01 00:00:00.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/fuzz_targets/artifact_verify.rs	2026-08-24 12:51:05.571446088 +0000
+@@ -0,0 +1,24 @@
++#![no_main]
++
++use lambda_safe_emit::verify_artifacts;
++use lambda_safe_model::{HardManifest, LambdaCertificate};
++use lambda_safe_syntax::deserialize_json_strict;
++use libfuzzer_sys::fuzz_target;
++
++fuzz_target!(|data: &[u8]| {
++    let midpoint = data.len() / 2;
++    let (manifest_bytes, certificate_bytes) = data.split_at(midpoint);
++    let (Ok(manifest_source), Ok(certificate_source)) = (
++        std::str::from_utf8(manifest_bytes),
++        std::str::from_utf8(certificate_bytes),
++    ) else {
++        return;
++    };
++    let (Ok(manifest), Ok(certificate)) = (
++        deserialize_json_strict::<HardManifest>(manifest_source),
++        deserialize_json_strict::<LambdaCertificate>(certificate_source),
++    ) else {
++        return;
++    };
++    let _ = verify_artifacts(&manifest, &certificate);
++});
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/reports/HARDENING_DIFF.patch nigenje-lambda-safe-compiler-open-v0.1.0/reports/HARDENING_DIFF.patch
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/reports/HARDENING_DIFF.patch	1970-01-01 00:00:00.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/reports/HARDENING_DIFF.patch	2026-08-24 12:52:55.817231685 +0000
+@@ -0,0 +1,538 @@
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/.github/workflows/fuzz.yml nigenje-lambda-safe-compiler-open-v0.1.0/.github/workflows/fuzz.yml
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/.github/workflows/fuzz.yml	2026-08-24 07:02:32.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/.github/workflows/fuzz.yml	2026-08-24 12:51:06.017607585 +0000
++@@ -14,7 +14,7 @@
++     strategy:
++       fail-fast: false
++       matrix:
++-        target: [contract_text, contract_json]
+++        target: [contract_text, contract_json, artifact_verify]
++     steps:
++       - uses: actions/checkout@v4
++       - uses: dtolnay/rust-toolchain@nightly
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/README.md nigenje-lambda-safe-compiler-open-v0.1.0/README.md
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/README.md	2026-08-24 07:02:32.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/README.md	2026-08-24 12:51:48.331214284 +0000
++@@ -79,7 +79,7 @@
++ | `lambda-safe-service` | Stateless Axum HTTP service |
++ 
++ The repository also includes JSON Schemas, valid and invalid examples,
++-conformance/adversarial/property tests, fuzz targets, benchmarks, CI, container
+++conformance/adversarial/property/stress tests, fuzz targets, scale benchmarks, CI, container
++ and Kubernetes resources, and a research traceability matrix.
++ 
++ ## Prerequisites
++@@ -197,7 +197,9 @@
++ 
++ Compilation is resource bounded: input size, expression nesting/nodes,
++ declarations, generated obligations, concurrent HTTP requests, finite-domain
++-states and each solver call all have explicit limits.
+++states, each solver call, and the complete compilation wall-clock budget all have explicit limits.
+++The default whole-compilation budget is 30 seconds (`LAMBDA_SAFE_MAX_COMPILE_MS=30000`),
+++so many individually legal solver obligations cannot accumulate into an unbounded worker hold.
++ 
++ ## Optional certificate signing
++ 
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-cli/src/main.rs nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-cli/src/main.rs
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-cli/src/main.rs	2026-08-24 07:02:32.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-cli/src/main.rs	2026-08-24 12:49:10.732882945 +0000
++@@ -34,6 +34,10 @@
++     #[arg(long, global = true, default_value_t = 5_000, env = "LAMBDA_SAFE_TIMEOUT_MS")]
++     timeout_ms: u64,
++ 
+++    /// Maximum wall-clock budget for one complete compilation in milliseconds.
+++    #[arg(long, global = true, default_value_t = 30_000, env = "LAMBDA_SAFE_MAX_COMPILE_MS")]
+++    max_compile_ms: u64,
+++
++     /// Maximum input size in bytes.
++     #[arg(long, global = true, default_value_t = 1_048_576, env = "LAMBDA_SAFE_MAX_SOURCE_BYTES")]
++     max_source_bytes: usize,
++@@ -149,6 +153,7 @@
++         max_source_bytes: cli.max_source_bytes,
++         max_solver_obligations: cli.max_solver_obligations,
++         solver_timeout: Duration::from_millis(cli.timeout_ms),
+++        max_compile_time: Duration::from_millis(cli.max_compile_ms),
++         ..CompilerConfig::default()
++     };
++ 
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/benches/compile.rs nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/benches/compile.rs
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/benches/compile.rs	2026-08-24 07:02:32.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/benches/compile.rs	2026-08-24 12:51:05.570549498 +0000
++@@ -1,20 +1,44 @@
++-use criterion::{Criterion, criterion_group, criterion_main};
+++use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
++ use lambda_safe_compiler::{Compiler, CompilerConfig, SourceFormat};
++ use lambda_safe_solver::FiniteModelSolver;
++ use std::hint::black_box;
++ use std::sync::Arc;
++ 
++-fn compile_benchmark(criterion: &mut Criterion) {
++-    let compiler = Compiler::new(
+++fn compiler() -> Compiler {
+++    Compiler::new(
++         Arc::new(FiniteModelSolver::default()),
++         CompilerConfig::default(),
+++    )
+++}
+++
+++fn generated_contract(invariants: usize) -> String {
+++    let mut source = String::from(
+++        "lambda_safe \"0.1\";\ncontract benchmark version \"1\" {\n  unit count;\n  const limit: int<count> = 2;\n  input x: int<count> authority control_plane range [0, 2];\n  assume bounded hard: x <= limit;\n",
++     );
+++    for index in 0..invariants {
+++        source.push_str(&format!("  invariant inv_{index} hard: x <= limit;\n"));
+++    }
+++    source.push_str("}\n");
+++    source
+++}
+++
+++fn compile_benchmark(criterion: &mut Criterion) {
+++    let compiler = compiler();
++     let source = include_str!("../../../examples/valid/routing.lambda");
++     criterion.bench_function("compile_valid_small_contract", |bencher| {
++         bencher.iter(|| compiler.compile(black_box(source), SourceFormat::Lambda));
++     });
+++
+++    let mut group = criterion.benchmark_group("generated_invariant_scale");
+++    for count in [1_usize, 25, 100, 500] {
+++        let source = generated_contract(count);
+++        group.throughput(Throughput::Elements(count as u64));
+++        group.bench_with_input(BenchmarkId::from_parameter(count), &source, |bencher, source| {
+++            bencher.iter(|| compiler.compile(black_box(source.as_str()), SourceFormat::Lambda));
+++        });
+++    }
+++    group.finish();
++ }
++ 
++ criterion_group!(benches, compile_benchmark);
++ criterion_main!(benches);
++-
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/src/lib.rs nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/src/lib.rs
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/src/lib.rs	2026-08-24 07:02:32.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/src/lib.rs	2026-08-24 12:48:58.288302852 +0000
++@@ -14,7 +14,7 @@
++ use serde::{Deserialize, Serialize};
++ use std::fmt;
++ use std::sync::Arc;
++-use std::time::Duration;
+++use std::time::{Duration, Instant};
++ 
++ /// Runtime limits and optional artifact-signing configuration.
++ #[derive(Clone)]
++@@ -23,6 +23,10 @@
++     pub max_source_bytes: usize,
++     /// Deadline for each solver obligation.
++     pub solver_timeout: Duration,
+++    /// Wall-clock budget for one complete compilation, including parsing, checking,
+++    /// solver obligations and artifact emission. No individual solver call may
+++    /// consume more than the remaining compilation budget.
+++    pub max_compile_time: Duration,
++     /// Static analysis limits.
++     pub checks: CheckConfig,
++     /// Maximum number of solver obligations generated by one compilation.
++@@ -38,6 +42,7 @@
++             .debug_struct("CompilerConfig")
++             .field("max_source_bytes", &self.max_source_bytes)
++             .field("solver_timeout", &self.solver_timeout)
+++            .field("max_compile_time", &self.max_compile_time)
++             .field("checks", &self.checks)
++             .field("max_solver_obligations", &self.max_solver_obligations)
++             .field("signing_key", &self.signing_key.as_ref().map(|_| "[REDACTED]"))
++@@ -50,6 +55,7 @@
++         Self {
++             max_source_bytes: 1_048_576,
++             solver_timeout: Duration::from_secs(5),
+++            max_compile_time: Duration::from_secs(30),
++             checks: CheckConfig::default(),
++             max_solver_obligations: 2_048,
++             signing_key: None,
++@@ -174,6 +180,13 @@
++     /// Runs the complete fail-closed compilation pipeline.
++     #[must_use]
++     pub fn compile(&self, source: &str, format: SourceFormat) -> CompileResult {
+++        let started = Instant::now();
+++        let Some(deadline) = started.checked_add(self.config.max_compile_time) else {
+++            return CompileResult::failed(
+++                CompileStatus::Indeterminate,
+++                vec![Diagnostic::error(codes::RESOURCE_LIMIT, "configured compilation deadline overflowed the platform clock")],
+++            );
+++        };
++         if let Some(diagnostic) = self.source_limit_diagnostic(source) {
++             return CompileResult::failed(CompileStatus::Indeterminate, vec![diagnostic]);
++         }
++@@ -192,7 +205,13 @@
++                 return CompileResult::failed(failure.status, failure.diagnostics);
++             }
++         };
++-        self.discharge(&checked)
+++        if Instant::now() >= deadline {
+++            return resource_indeterminate(&checked, format!(
+++                "compilation exceeded the configured wall-clock budget of {} ms before solver discharge",
+++                duration_ms_u64(self.config.max_compile_time),
+++            ));
+++        }
+++        self.discharge(&checked, deadline)
++     }
++ 
++     /// Verifies a manifest/certificate pair without invoking the SMT solver.
++@@ -205,7 +224,7 @@
++         verify_artifacts(manifest, certificate)
++     }
++ 
++-    fn discharge(&self, checked: &CheckedContract) -> CompileResult {
+++    fn discharge(&self, checked: &CheckedContract, deadline: Instant) -> CompileResult {
++         let solver_identity = self.solver.identity();
++         if solver_identity.name.is_empty()
++             || solver_identity.version.is_empty()
++@@ -252,7 +271,7 @@
++             symbols: symbols.clone(),
++             assertions: assumptions.clone(),
++         };
++-        match self.solve(&feasibility) {
+++        match self.solve(&feasibility, deadline) {
++             Ok(DecisionResult::Sat(counterexample)) => records.push(VerificationRecord {
++                 obligation_id: feasibility.id,
++                 obligation_kind: "context_feasibility".to_owned(),
++@@ -297,7 +316,7 @@
++                 symbols: symbols.clone(),
++                 assertions,
++             };
++-            match self.solve(&query) {
+++            match self.solve(&query, deadline) {
++                 Ok(DecisionResult::Unsat) => records.push(VerificationRecord {
++                     obligation_id: query.id,
++                     obligation_kind: "invariant_validity".to_owned(),
++@@ -425,7 +444,7 @@
++                         symbols: symbols.clone(),
++                         assertions,
++                     };
++-                    match self.solve(&query) {
+++                    match self.solve(&query, deadline) {
++                         Ok(DecisionResult::Unsat) => records.push(VerificationRecord {
++                             obligation_id: query.id,
++                             obligation_kind: "transition_preservation".to_owned(),
++@@ -515,8 +534,13 @@
++         }
++     }
++ 
++-    fn solve(&self, query: &SolverQuery) -> Result<DecisionResult, SolverError> {
++-        self.solver.solve(query, self.config.solver_timeout)
+++    fn solve(&self, query: &SolverQuery, deadline: Instant) -> Result<DecisionResult, SolverError> {
+++        let remaining = deadline.saturating_duration_since(Instant::now());
+++        if remaining.is_zero() {
+++            return Err(SolverError::Timeout(duration_ms_u64(self.config.max_compile_time)));
+++        }
+++        let timeout = self.config.solver_timeout.min(remaining);
+++        self.solver.solve(query, timeout)
++     }
++ 
++     fn source_limit_diagnostic(&self, source: &str) -> Option<Diagnostic> {
++@@ -552,6 +576,10 @@
++     }
++ }
++ 
+++fn duration_ms_u64(duration: Duration) -> u64 {
+++    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+++}
+++
++ fn summary(checked: &CheckedContract) -> CheckSummary {
++     CheckSummary {
++         contract_id: checked.contract_id.clone(),
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/adversarial.rs nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/adversarial.rs
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/adversarial.rs	2026-08-24 07:02:32.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/adversarial.rs	2026-08-24 12:52:30.348594522 +0000
++@@ -193,3 +193,64 @@
++     assert!(result.verification.iter().any(|record| record.counterexample.is_some()));
++     assert!(result.artifacts.is_none());
++ }
+++
+++#[derive(Debug)]
+++struct DeadlineHonoringSolver;
+++
+++impl DecisionProcedure for DeadlineHonoringSolver {
+++    fn identity(&self) -> SolverIdentity {
+++        SolverIdentity {
+++            name: "deadline-test-double".to_owned(),
+++            version: "1".to_owned(),
+++            theory: "QF_LIA".to_owned(),
+++            options: BTreeMap::new(),
+++        }
+++    }
+++
+++    fn solve(
+++        &self,
+++        _query: &SolverQuery,
+++        timeout: Duration,
+++    ) -> Result<DecisionResult, SolverError> {
+++        let work = Duration::from_millis(15);
+++        if timeout < work {
+++            std::thread::sleep(timeout);
+++            return Err(SolverError::Timeout(timeout.as_millis() as u64));
+++        }
+++        std::thread::sleep(work);
+++        Ok(DecisionResult::Sat(Counterexample {
+++            assignments: BTreeMap::new(),
+++            raw_model: None,
+++        }))
+++    }
+++}
+++
+++#[test]
+++fn whole_compilation_deadline_is_fail_closed() {
+++    let config = CompilerConfig {
+++        solver_timeout: Duration::from_secs(5),
+++        max_compile_time: Duration::from_millis(25),
+++        ..CompilerConfig::default()
+++    };
+++    let compiler = Compiler::new(Arc::new(DeadlineHonoringSolver), config);
+++    let started = std::time::Instant::now();
+++    let result = compiler.compile(valid_source(), SourceFormat::Lambda);
+++    assert_eq!(result.status, CompileStatus::Indeterminate);
+++    assert!(result.artifacts.is_none());
+++    assert!(started.elapsed() < Duration::from_millis(250));
+++}
+++
+++#[test]
+++fn zero_compilation_budget_never_emits_artifacts() {
+++    let config = CompilerConfig {
+++        max_compile_time: Duration::ZERO,
+++        ..CompilerConfig::default()
+++    };
+++    let compiler = Compiler::new(
+++        Arc::new(lambda_safe_solver::FiniteModelSolver::default()),
+++        config,
+++    );
+++    let result = compiler.compile(valid_source(), SourceFormat::Lambda);
+++    assert_eq!(result.status, CompileStatus::Indeterminate);
+++    assert!(result.artifacts.is_none());
+++}
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/stress.rs nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/stress.rs
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/stress.rs	1970-01-01 00:00:00.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-compiler/tests/stress.rs	2026-08-24 12:49:40.119078660 +0000
++@@ -0,0 +1,67 @@
+++use lambda_safe_compiler::{Compiler, CompilerConfig, SourceFormat};
+++use lambda_safe_model::CompileStatus;
+++use lambda_safe_solver::FiniteModelSolver;
+++use std::sync::Arc;
+++
+++fn generated_contract(invariants: usize) -> String {
+++    let mut source = String::from(
+++        "lambda_safe \"0.1\";\ncontract generated_stress version \"1\" {\n  unit count;\n  const limit: int<count> = 2;\n  input x: int<count> authority control_plane range [0, 2];\n  assume bounded hard: x <= limit;\n",
+++    );
+++    for index in 0..invariants {
+++        source.push_str(&format!("  invariant inv_{index} hard: x <= limit;\n"));
+++    }
+++    source.push_str("}\n");
+++    source
+++}
+++
+++fn compiler(config: CompilerConfig) -> Compiler {
+++    Compiler::new(Arc::new(FiniteModelSolver::default()), config)
+++}
+++
+++#[test]
+++fn large_generated_contract_certifies_within_supported_bounds() {
+++    let source = generated_contract(512);
+++    let result = compiler(CompilerConfig::default()).compile(&source, SourceFormat::Lambda);
+++    assert_eq!(result.status, CompileStatus::StaticallyCertified);
+++    assert!(result.artifacts.is_some());
+++    assert_eq!(result.verification.len(), 513);
+++}
+++
+++#[test]
+++fn obligation_boundary_rejects_before_any_solver_work() {
+++    let config = CompilerConfig {
+++        max_solver_obligations: 64,
+++        ..CompilerConfig::default()
+++    };
+++    let result = compiler(config).compile(&generated_contract(64), SourceFormat::Lambda);
+++    assert_eq!(result.status, CompileStatus::Indeterminate);
+++    assert!(result.verification.is_empty());
+++    assert!(result.artifacts.is_none());
+++}
+++
+++#[test]
+++fn parallel_compilation_is_deterministic() {
+++    let source = Arc::new(generated_contract(64));
+++    let baseline = compiler(CompilerConfig::default())
+++        .compile(source.as_str(), SourceFormat::Lambda)
+++        .artifacts
+++        .expect("baseline should certify")
+++        .certificate
+++        .certificate_digest;
+++
+++    let mut handles = Vec::new();
+++    for _ in 0..16 {
+++        let source = Arc::clone(&source);
+++        handles.push(std::thread::spawn(move || {
+++            compiler(CompilerConfig::default())
+++                .compile(source.as_str(), SourceFormat::Lambda)
+++                .artifacts
+++                .expect("parallel compile should certify")
+++                .certificate
+++                .certificate_digest
+++        }));
+++    }
+++    for handle in handles {
+++        assert_eq!(handle.join().expect("worker should not panic"), baseline);
+++    }
+++}
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-service/src/main.rs nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-service/src/main.rs
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-service/src/main.rs	2026-08-24 07:02:32.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/crates/lambda-safe-service/src/main.rs	2026-08-24 12:49:10.742796035 +0000
++@@ -97,6 +97,7 @@
++         max_source_bytes: settings.max_source_bytes,
++         max_solver_obligations: settings.max_solver_obligations,
++         solver_timeout: Duration::from_millis(settings.timeout_ms),
+++        max_compile_time: Duration::from_millis(settings.max_compile_ms),
++         ..CompilerConfig::default()
++     };
++     if let Some(path) = &settings.signing_key_file {
++@@ -378,6 +379,7 @@
++     solver: String,
++     z3_path: PathBuf,
++     timeout_ms: u64,
+++    max_compile_ms: u64,
++     max_source_bytes: usize,
++     max_body_bytes: usize,
++     max_solver_obligations: usize,
++@@ -394,6 +396,7 @@
++             solver: value("LAMBDA_SAFE_SOLVER", "z3"),
++             z3_path: PathBuf::from(value("LAMBDA_SAFE_Z3_PATH", "z3")),
++             timeout_ms: parse_value("LAMBDA_SAFE_TIMEOUT_MS", 5_000)?,
+++            max_compile_ms: parse_value("LAMBDA_SAFE_MAX_COMPILE_MS", 30_000)?,
++             max_source_bytes: parse_value("LAMBDA_SAFE_MAX_SOURCE_BYTES", 1_048_576)?,
++             max_body_bytes: parse_value("LAMBDA_SAFE_MAX_BODY_BYTES", 1_200_000)?,
++             max_solver_obligations: parse_value(
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/api.md nigenje-lambda-safe-compiler-open-v0.1.0/docs/api.md
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/api.md	2026-08-24 07:02:32.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/docs/api.md	2026-08-24 12:51:48.331005985 +0000
++@@ -10,6 +10,7 @@
++ | `LAMBDA_SAFE_SOLVER` | `z3` | `z3` or exact bounded `finite` |
++ | `LAMBDA_SAFE_Z3_PATH` | `z3` | Z3 executable |
++ | `LAMBDA_SAFE_TIMEOUT_MS` | `5000` | Deadline per solver obligation |
+++| `LAMBDA_SAFE_MAX_COMPILE_MS` | `30000` | Wall-clock budget for one complete compilation |
++ | `LAMBDA_SAFE_MAX_SOURCE_BYTES` | `1048576` | Compiler source limit |
++ | `LAMBDA_SAFE_MAX_BODY_BYTES` | `1200000` | HTTP body limit |
++ | `LAMBDA_SAFE_MAX_SOLVER_OBLIGATIONS` | `2048` | Maximum generated obligations per compile |
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/security.md nigenje-lambda-safe-compiler-open-v0.1.0/docs/security.md
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/security.md	2026-08-24 07:02:32.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/docs/security.md	2026-08-24 12:51:48.331346620 +0000
++@@ -29,7 +29,7 @@
++ | Artifact substitution | Manifest/certificate SHA-256 binding and reconstructed hard-input digest |
++ | Partial or accidental artifact replacement | Immutable CLI output path and staged directory publication |
++ | Signature confusion | Ed25519 algorithm id and public key embedded in signature record |
++-| Resource exhaustion | Source, token, nesting, node, obligation, concurrency, solver-time and finite-state limits |
+++| Resource exhaustion | Source, token, nesting, node, obligation, concurrency, per-solver, whole-compilation and finite-state limits |
++ | Ambiguous JSON member shadowing | Duplicate and unknown object members are rejected recursively |
++ | Command injection | Z3 path is an executable argument; source is sent through stdin |
++ | Nondeterminism | Sorted hard projection and JCS serialization |
++@@ -57,3 +57,7 @@
++ - Unicode confusables in free-form human strings; identifiers themselves are
++   restricted to ASCII.
++ - No mechanized compiler-correctness or proof-assistant proof in v0.1.
+++
+++### Whole-compilation deadline
+++
+++Per-obligation timeouts are not sufficient against contracts that generate many expensive obligations. The compiler therefore starts a wall-clock deadline at the beginning of `compile`; every solver call receives the smaller of the configured per-obligation timeout and the remaining compilation budget. Exhaustion maps to `INDETERMINATE` and never emits artifacts.
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/testing.md nigenje-lambda-safe-compiler-open-v0.1.0/docs/testing.md
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/testing.md	2026-08-24 07:02:32.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/docs/testing.md	2026-08-24 12:51:48.331296997 +0000
++@@ -6,11 +6,11 @@
++ |---|---|
++ | Unit | Parser precedence, typing, normalization, solver encoding, canonicalization |
++ | Conformance | 120 generated bounded QF-LIA contracts with expected outcomes |
++-| Adversarial | Fail-closed and non-elevation attacks |
+++| Adversarial | Fail-closed, deadline, tamper and non-elevation attacks |
++ | Integration | End-to-end text/JSON compilation and artifact verification |
++ | Property | Parser robustness and deterministic behavior over generated inputs |
++-| Fuzz | Arbitrary bytes into both source formats and the compile facade |
++-| Benchmark | Detect material regression in bounded end-to-end compilation |
+++| Fuzz | Arbitrary bytes into both source formats, the compile facade and artifact verification |
+++| Benchmark | Scale end-to-end compilation across 1/25/100/500 hard invariants |
++ | Service | Routing, body handling and status mapping |
++ 
++ ## Required release commands
++@@ -19,7 +19,9 @@
++ cargo fmt --all --check
++ cargo clippy --workspace --all-targets --all-features -- -D warnings
++ cargo test --workspace --all-features
++-cargo test -p lambda-safe-compiler --test conformance
+++cargo test -p lambda-safe-compiler --test conformance --locked
+++cargo test -p lambda-safe-compiler --test adversarial --locked
+++cargo test -p lambda-safe-compiler --test stress --locked
++ cargo build --workspace --release --locked
++ ./scripts/smoke-test.sh target/release/lambda-safe
++ ```
++@@ -45,3 +47,7 @@
++ 4. timeout/unknown behavior;
++ 5. canonical artifact stability;
++ 6. an adversarial boundary case.
+++
+++## Stress qualification
+++
+++The stress suite includes a 512-invariant supported contract, obligation-limit fail-closed behavior, 16-way parallel deterministic compilation, and a compilation-wide deadline adversarial test. Criterion reports latency distributions for generated contracts at 1, 25, 100 and 500 hard invariants. `scripts/qualification.sh` runs the deterministic qualification surface; duration-based fuzzing remains a separate workflow.
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/trust-model.md nigenje-lambda-safe-compiler-open-v0.1.0/docs/trust-model.md
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/docs/trust-model.md	2026-08-24 07:02:32.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/docs/trust-model.md	2026-08-24 12:51:48.331389945 +0000
++@@ -74,8 +74,7 @@
++ 
++ - Pin the Rust toolchain, dependencies, container digest and Z3 version.
++ - Place the service behind authentication and network policy.
++-- Apply a reverse-proxy request deadline longer than the per-obligation timeout
++-  but bounded for the maximum permitted obligation count.
+++- Keep a reverse-proxy request deadline slightly above `LAMBDA_SAFE_MAX_COMPILE_MS`. The compiler itself enforces a whole-compilation wall-clock budget in addition to the per-obligation timeout.
++ - Use a read-only root filesystem and non-root user.
++ - Keep signing keys in KMS/HSM-backed storage; a mounted key file is a portable
++   reference path, not the preferred enterprise custody mechanism.
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/Cargo.toml nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/Cargo.toml
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/Cargo.toml	2026-08-24 07:02:32.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/Cargo.toml	2026-08-24 12:51:06.017483531 +0000
++@@ -10,6 +10,8 @@
++ [dependencies]
++ libfuzzer-sys = "0.4"
++ lambda-safe-compiler = { path = "../crates/lambda-safe-compiler" }
+++lambda-safe-emit = { path = "../crates/lambda-safe-emit" }
+++lambda-safe-model = { path = "../crates/lambda-safe-model" }
++ lambda-safe-solver = { path = "../crates/lambda-safe-solver" }
++ lambda-safe-syntax = { path = "../crates/lambda-safe-syntax" }
++ 
++@@ -29,3 +31,10 @@
++ 
++ [workspace]
++ members = ["."]
+++
+++[[bin]]
+++name = "artifact_verify"
+++path = "fuzz_targets/artifact_verify.rs"
+++test = false
+++doc = false
+++bench = false
++diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/fuzz_targets/artifact_verify.rs nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/fuzz_targets/artifact_verify.rs
++--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/fuzz_targets/artifact_verify.rs	1970-01-01 00:00:00.000000000 +0000
+++++ nigenje-lambda-safe-compiler-open-v0.1.0/fuzz/fuzz_targets/artifact_verify.rs	2026-08-24 12:51:05.571446088 +0000
++@@ -0,0 +1,24 @@
+++#![no_main]
+++
+++use lambda_safe_emit::verify_artifacts;
+++use lambda_safe_model::{HardManifest, LambdaCertificate};
+++use lambda_safe_syntax::deserialize_json_strict;
+++use libfuzzer_sys::fuzz_target;
+++
+++fuzz_target!(|data: &[u8]| {
+++    let midpoint = data.len() / 2;
+++    let (manifest_bytes, certificate_bytes) = data.split_at(midpoint);
+++    let (Ok(manifest_source), Ok(certificate_source)) = (
+++        std::str::from_utf8(manifest_bytes),
+++        std::str::from_utf8(certificate_bytes),
+++    ) else {
+++        return;
+++    };
+++    let (Ok(manifest), Ok(certificate)) = (
+++        deserialize_json_strict::<HardManifest>(manifest_source),
+++        deserialize_json_strict::<LambdaCertificate>(certificate_source),
+++    ) else {
+++        return;
+++    };
+++    let _ = verify_artifacts(&manifest, &certificate);
+++});
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/reports/HARDENING_RC.md nigenje-lambda-safe-compiler-open-v0.1.0/reports/HARDENING_RC.md
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/reports/HARDENING_RC.md	1970-01-01 00:00:00.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/reports/HARDENING_RC.md	2026-08-24 12:51:48.479485292 +0000
+@@ -0,0 +1,22 @@
++# λ-Safe Compiler v0.1.0 — Hardening Release Candidate
++
++## Scope preserved
++
++This hardening pass does not change λ-Safe v0.1 language semantics or expand the certification claim beyond authority-bounded hard control-plane invariants in the supported QF-LIA fragment. Probabilistic and soft claims remain excluded from hard certification.
++
++## Changes made
++
++- Whole-compilation wall-clock budget: 30 seconds by default, configurable through the library, CLI and service (`LAMBDA_SAFE_MAX_COMPILE_MS`).
++- Solver calls are capped by `min(per_obligation_timeout, remaining_compile_budget)`.
++- Deadline exhaustion maps to `INDETERMINATE`; no artifact can be emitted.
++- Stress tests: 512 hard invariants, obligation-limit rejection before solver work, and 16 concurrent deterministic compilations.
++- Adversarial deadline tests: cumulative work cannot extend beyond the compilation budget without failing closed.
++- Criterion scaling benchmarks: 1, 25, 100 and 500 hard invariants.
++- New `artifact_verify` fuzz target for strict manifest/certificate deserialization and verification.
++- New deterministic qualification script and explicit lockfile requirement for release verification.
++
++## Execution status in this packaging environment
++
++The source tree was inspected and statically transformed here, but this environment does not contain `cargo`, `rustc`, `z3` or Docker and has no network access to install them. Therefore this package does **not** claim that Rust compilation, tests, benchmarks, Z3 interoperability, fuzz campaigns or container checks were executed here.
++
++`Cargo.lock` could not be truthfully generated without Cargo/dependency resolution. It is intentionally not fabricated. Before tagging the release, run `cargo generate-lockfile`, commit the resulting `Cargo.lock`, then execute `./scripts/qualification.sh` and the fuzz workflow. A release is qualified only after those executable checks are green.
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/scripts/qualification.sh nigenje-lambda-safe-compiler-open-v0.1.0/scripts/qualification.sh
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/scripts/qualification.sh	1970-01-01 00:00:00.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/scripts/qualification.sh	2026-08-24 12:51:47.853868698 +0000
+@@ -0,0 +1,28 @@
++#!/usr/bin/env sh
++set -eu
++
++repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
++cd "$repo_dir"
++
++command -v cargo >/dev/null 2>&1 || {
++  echo "error: cargo is required" >&2
++  exit 70
++}
++
++if [ ! -f Cargo.lock ]; then
++  echo "error: Cargo.lock is required for qualification; run cargo generate-lockfile and commit it" >&2
++  exit 70
++fi
++
++cargo fmt --all --check
++cargo fmt --manifest-path fuzz/Cargo.toml --all --check
++cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
++cargo test --workspace --all-features --locked
++cargo test -p lambda-safe-compiler --test conformance --locked
++cargo test -p lambda-safe-compiler --test adversarial --locked
++cargo test -p lambda-safe-compiler --test stress --locked
++cargo build --workspace --release --locked
++"$repo_dir/scripts/smoke-test.sh" "$repo_dir/target/release/lambda-safe"
++cargo bench -p lambda-safe-compiler --bench compile --locked
++
++echo "qualification suite completed; run the scheduled/manual fuzz workflow for duration-based fuzz evidence"
+diff -ruN /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/scripts/verify.sh nigenje-lambda-safe-compiler-open-v0.1.0/scripts/verify.sh
+--- /mnt/data/lambda_safe_original/nigenje-lambda-safe-compiler-open-v0.1.0/scripts/verify.sh	2026-08-24 07:02:32.000000000 +0000
++++ nigenje-lambda-safe-compiler-open-v0.1.0/scripts/verify.sh	2026-08-24 12:51:48.330832748 +0000
+@@ -10,7 +10,8 @@
+ }
+ 
+ if [ ! -f Cargo.lock ]; then
+-  cargo generate-lockfile
++  echo "error: Cargo.lock is required for reproducible release verification" >&2
++  exit 70
+ fi
+ 
+ cargo fmt --all --check

@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nigenje.com/schemas/lambda-safe/0.1/contract.schema.json",
+  "title": "λ-Safe Contract Projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "language_version", "contract_id", "contract_version"],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "language_version": {"const": "0.1"},
+    "contract_id": {"$ref": "#/$defs/identifier"},
+    "contract_version": {"type": "string", "minLength": 1, "maxLength": 128},
+    "units": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {"$ref": "#/$defs/unit"}
+    },
+    "constants": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {"$ref": "#/$defs/constant"}
+    },
+    "symbols": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {"$ref": "#/$defs/symbol"}
+    },
+    "assumptions": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {"$ref": "#/$defs/claim"}
+    },
+    "invariants": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {"$ref": "#/$defs/claim"}
+    },
+    "transitions": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {"$ref": "#/$defs/transition"}
+    },
+    "tokens": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/named"}
+    },
+    "consumes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/named"}
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "maxLength": 4096}
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+    },
+    "named": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {"name": {"$ref": "#/$defs/identifier"}}
+    },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "base", "scale"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "base": {"$ref": "#/$defs/identifier"},
+        "scale": {"type": "integer", "minimum": 1, "maximum": 1000000000000}
+      }
+    },
+    "constant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value", "unit"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "value": {"type": "integer"},
+        "unit": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "valueType": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "boolean"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "unit"],
+          "properties": {
+            "kind": {"const": "integer"},
+            "unit": {"$ref": "#/$defs/identifier"}
+          }
+        }
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "version"],
+      "properties": {
+        "source": {"type": "string", "minLength": 1, "maxLength": 256},
+        "version": {"type": "string", "minLength": 1, "maxLength": 128},
+        "digest": {"type": "string", "maxLength": 256},
+        "labels": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "maxLength": 1024}
+        }
+      }
+    },
+    "symbol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value_type", "authority"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "value_type": {"$ref": "#/$defs/valueType"},
+        "authority": {
+          "enum": ["control_plane", "trusted_report", "predictive", "unsupported"]
+        },
+        "minimum": {"type": "integer"},
+        "maximum": {"type": "integer"},
+        "provenance": {"$ref": "#/$defs/provenance"}
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "class", "expression"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "class": {"enum": ["hard", "trusted", "soft"]},
+        "expression": {"type": "string", "minLength": 1, "maxLength": 262144}
+      }
+    },
+    "branch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "relation"],
+      "properties": {
+        "name": {"enum": ["primary", "fallback", "merge"]},
+        "relation": {"type": "string", "minLength": 1, "maxLength": 262144}
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "preserves", "branches"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"enum": ["degrade", "reconcile"]},
+        "strategy": {"$ref": "#/$defs/identifier"},
+        "preserves": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        },
+        "branches": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/branch"}
+        }
+      }
+    }
+  }
+}

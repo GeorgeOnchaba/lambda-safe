@@ -1,0 +1,30 @@
+[package]
+name = "lambda-safe-compiler"
+description = "Public library API and compilation pipeline for the NiGeNje λ-Safe Compiler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ed25519-dalek.workspace = true
+lambda-safe-check = { path = "../lambda-safe-check" }
+lambda-safe-emit = { path = "../lambda-safe-emit" }
+lambda-safe-model = { path = "../lambda-safe-model" }
+lambda-safe-solver = { path = "../lambda-safe-solver" }
+lambda-safe-syntax = { path = "../lambda-safe-syntax" }
+serde.workspace = true
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.6"
+serde_json.workspace = true
+
+[[bench]]
+name = "compile"
+harness = false
+
+[lints]
+workspace = true

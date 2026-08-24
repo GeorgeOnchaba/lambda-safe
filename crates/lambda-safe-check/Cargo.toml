@@ -1,0 +1,19 @@
+[package]
+name = "lambda-safe-check"
+description = "Semantic, type, unit, authority and hard-fragment checker for λ-Safe"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+lambda-safe-model = { path = "../lambda-safe-model" }
+serde.workspace = true
+
+[dev-dependencies]
+lambda-safe-syntax = { path = "../lambda-safe-syntax" }
+
+[lints]
+workspace = true

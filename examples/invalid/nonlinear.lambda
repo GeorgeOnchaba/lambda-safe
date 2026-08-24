@@ -1,0 +1,9 @@
+lambda_safe "0.1";
+contract nonlinear version "1.0.0" {
+  unit count;
+  input x: int<count> authority control_plane range [0, 4];
+  input y: int<count> authority control_plane range [0, 4];
+  input limit: int<count> authority control_plane range [0, 16];
+  invariant product hard: x * y <= limit;
+}
+

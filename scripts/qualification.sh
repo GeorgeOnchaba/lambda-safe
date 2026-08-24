@@ -1,0 +1,28 @@
+#!/usr/bin/env sh
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$repo_dir"
+
+command -v cargo >/dev/null 2>&1 || {
+  echo "error: cargo is required" >&2
+  exit 70
+}
+
+if [ ! -f Cargo.lock ]; then
+  echo "error: Cargo.lock is required for qualification; run cargo generate-lockfile and commit it" >&2
+  exit 70
+fi
+
+cargo fmt --all --check
+cargo fmt --manifest-path fuzz/Cargo.toml --all --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --all-features --locked
+cargo test -p lambda-safe-compiler --test conformance --locked
+cargo test -p lambda-safe-compiler --test adversarial --locked
+cargo test -p lambda-safe-compiler --test stress --locked
+cargo build --workspace --release --locked
+"$repo_dir/scripts/smoke-test.sh" "$repo_dir/target/release/lambda-safe"
+cargo bench -p lambda-safe-compiler --bench compile --locked
+
+echo "qualification suite completed; run the scheduled/manual fuzz workflow for duration-based fuzz evidence"

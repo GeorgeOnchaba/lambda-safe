@@ -1,0 +1,10 @@
+[build]
+incremental = true
+
+[term]
+color = "auto"
+verbose = false
+
+[net]
+retry = 2
+

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nigenje.com/schemas/lambda-safe/0.1/certificate.schema.json",
+  "title": "λ-Safe Certificate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["body", "certificate_digest"],
+  "properties": {
+    "body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "canonicalization", "digest_algorithm", "compiler_version",
+        "solver", "contract_id", "contract_version", "manifest_digest",
+        "hard_input_digest", "assumptions_digest", "hard_claim_digests",
+        "strategy_registry_digest"
+      ],
+      "properties": {
+        "schema_version": {"const": "0.1"},
+        "canonicalization": {"const": "RFC8785-JCS"},
+        "digest_algorithm": {"const": "SHA-256"},
+        "compiler_version": {"type": "string", "minLength": 1},
+        "solver": {"$ref": "#/$defs/solver"},
+        "contract_id": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"},
+        "contract_version": {"type": "string", "minLength": 1, "maxLength": 128},
+        "manifest_digest": {"$ref": "#/$defs/digest"},
+        "hard_input_digest": {"$ref": "#/$defs/digest"},
+        "assumptions_digest": {"$ref": "#/$defs/digest"},
+        "hard_claim_digests": {"type": "array", "items": {"$ref": "#/$defs/digest"}},
+        "strategy_registry_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "certificate_digest": {"$ref": "#/$defs/digest"},
+    "signature": {"$ref": "#/$defs/signature"}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "solver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "theory", "options"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "theory": {"enum": ["QF_LIA", "QF_LIA_FINITE_BOUNDS"]},
+        "options": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "public_key", "signature"],
+      "properties": {
+        "algorithm": {"const": "Ed25519"},
+        "public_key": {"type": "string", "contentEncoding": "base64"},
+        "signature": {"type": "string", "contentEncoding": "base64"}
+      }
+    }
+  }
+}

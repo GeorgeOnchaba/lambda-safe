@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nigenje.com/schemas/lambda-safe/0.1/compile-response.schema.json",
+  "title": "λ-Safe Compile Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "diagnostics", "verification", "excluded_claims"],
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "STATICALLY_CERTIFIED"}}},
+      "then": {"required": ["artifacts"]},
+      "else": {"not": {"required": ["artifacts"]}}
+    }
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "STATICALLY_CERTIFIED", "INVARIANT_VIOLATED", "INFEASIBLE_CONTEXT",
+        "UNSUPPORTED", "INDETERMINATE", "MALFORMED_CONTRACT", "AUTHORITY_VIOLATION"
+      ]
+    },
+    "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}},
+    "verification": {"type": "array", "items": {"$ref": "#/$defs/verification"}},
+    "excluded_claims": {"type": "array", "items": {"$ref": "#/$defs/excludedClaim"}},
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest", "certificate"],
+      "properties": {
+        "manifest": {"$ref": "manifest.schema.json"},
+        "certificate": {"$ref": "certificate.schema.json"}
+      }
+    }
+  },
+  "$defs": {
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end", "line", "column"],
+      "properties": {
+        "start": {"type": "integer", "minimum": 0},
+        "end": {"type": "integer", "minimum": 0},
+        "line": {"type": "integer", "minimum": 0},
+        "column": {"type": "integer", "minimum": 0}
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": {"type": "string", "pattern": "^LSC-[A-Z][0-9]{3}$"},
+        "severity": {"enum": ["information", "warning", "error"]},
+        "message": {"type": "string"},
+        "span": {"$ref": "#/$defs/span"},
+        "subject": {"type": "string"},
+        "help": {"type": "string"}
+      }
+    },
+    "primitiveValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"const": "integer"},
+            "value": {"type": "integer"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"const": "boolean"},
+            "value": {"type": "boolean"}
+          }
+        }
+      ]
+    },
+    "counterexample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assignments"],
+      "properties": {
+        "assignments": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/primitiveValue"}
+        },
+        "raw_model": {"type": "string"}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["obligation_id", "obligation_kind", "outcome"],
+      "properties": {
+        "obligation_id": {"type": "string"},
+        "obligation_kind": {
+          "enum": [
+            "context_feasibility", "invariant_validity",
+            "transition_feasibility", "transition_preservation"
+          ]
+        },
+        "outcome": {"enum": ["satisfiable", "unsatisfiable", "indeterminate"]},
+        "counterexample": {"$ref": "#/$defs/counterexample"}
+      }
+    },
+    "excludedClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "class", "reason"],
+      "properties": {
+        "id": {"type": "string"},
+        "class": {"enum": ["trusted", "soft"]},
+        "reason": {"type": "string"}
+      }
+    }
+  }
+}

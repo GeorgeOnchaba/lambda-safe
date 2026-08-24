@@ -1,0 +1,38 @@
+lambda_safe "0.1";
+contract node_capacity version "1.0.0" {
+  unit cpu_milli;
+  unit cpu_core = 1000 cpu_milli;
+  unit milliseconds;
+  unit currency_minor;
+
+  const zero_cpu: int<cpu_milli> = 0;
+  const latency_limit: int<milliseconds> = 80;
+  const zero_balance: int<currency_minor> = 0;
+
+  input allocated_cpu: int<cpu_milli> authority control_plane range [0, 8];
+  input node_capacity_cpu: int<cpu_milli> authority control_plane range [0, 8];
+  input reported_balance: int<currency_minor> authority trusted_report range [-10, 10];
+  input predicted_latency: int<milliseconds> authority predictive range [0, 200];
+
+  assume capacity_policy hard: allocated_cpu <= node_capacity_cpu;
+  assume capacity_nonnegative hard: node_capacity_cpu >= zero_cpu;
+  invariant allocation_within_capacity hard: allocated_cpu <= node_capacity_cpu;
+  invariant reported_balance_nonnegative trusted: reported_balance >= zero_balance;
+  invariant preferred_latency soft: predicted_latency <= latency_limit;
+
+  token allocation_lease;
+  consume allocation_lease;
+
+  degrade capacity_fallback preserves [allocation_within_capacity] {
+    primary: next(allocated_cpu) == allocated_cpu && next(node_capacity_cpu) == node_capacity_cpu;
+    fallback: next(allocated_cpu) <= next(node_capacity_cpu);
+  }
+
+  reconcile capacity_merge using escrow_balance preserves [allocation_within_capacity] {
+    merge: next(allocated_cpu) <= next(node_capacity_cpu);
+  }
+
+  metadata owner = "platform_engineering";
+  metadata note = "metadata is excluded from hard certification";
+}
+

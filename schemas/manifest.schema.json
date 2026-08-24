@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nigenje.com/schemas/lambda-safe/0.1/manifest.schema.json",
+  "title": "λ-Safe Hard Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "language_version", "compiler_version", "contract_id",
+    "contract_version", "theory", "declarations", "assumptions", "invariants",
+    "transitions", "linear_tokens", "strategy_registry_digest", "trust_boundary"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "language_version": {"const": "0.1"},
+    "compiler_version": {"type": "string", "minLength": 1},
+    "contract_id": {"$ref": "#/$defs/identifier"},
+    "contract_version": {"type": "string", "minLength": 1, "maxLength": 128},
+    "theory": {"const": "QF_LIA"},
+    "declarations": {"type": "array", "items": {"$ref": "#/$defs/declaration"}},
+    "assumptions": {"type": "array", "items": {"$ref": "#/$defs/claim"}},
+    "invariants": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/claim"}},
+    "transitions": {"type": "array", "items": {"$ref": "#/$defs/transition"}},
+    "linear_tokens": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+    "strategy_registry_digest": {"$ref": "#/$defs/digest"},
+    "trust_boundary": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$"
+    },
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sort", "authority"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "sort": {"enum": ["bool", "int"]},
+        "base_unit": {"type": "string"},
+        "scale": {"type": "integer", "minimum": 1},
+        "authority": {"const": "control_plane"},
+        "minimum": {"type": "integer"},
+        "maximum": {"type": "integer"}
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "expression", "digest"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "expression": {"type": "string", "minLength": 1},
+        "digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "preserves", "relations", "relation_digest"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"enum": ["degrade", "reconcile"]},
+        "strategy": {"$ref": "#/$defs/identifier"},
+        "preserves": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+        "relations": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 2,
+          "propertyNames": {"enum": ["primary", "fallback", "merge"]},
+          "additionalProperties": {"type": "string", "minLength": 1}
+        },
+        "relation_digest": {"$ref": "#/$defs/digest"}
+      }
+    }
+  }
+}

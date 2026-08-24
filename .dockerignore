@@ -1,0 +1,7 @@
+.git
+.github
+artifacts
+target
+fuzz/target
+*.zip
+reports/local-*

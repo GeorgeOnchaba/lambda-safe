@@ -1,0 +1,8 @@
+lambda_safe "0.1";
+contract application_claim version "1.0.0" {
+  unit currency_minor;
+  const zero: int<currency_minor> = 0;
+  input account_balance: int<currency_minor> authority trusted_report range [-100, 100];
+  invariant balance_nonnegative hard: account_balance >= zero;
+}
+

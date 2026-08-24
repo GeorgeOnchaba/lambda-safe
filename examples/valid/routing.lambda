@@ -1,0 +1,11 @@
+lambda_safe "0.1";
+contract approved_routing version "1.0.0" {
+  unit count;
+  const zero: int<count> = 0;
+  input route_approved: bool authority control_plane;
+  input replica_count: int<count> authority control_plane range [0, 5];
+  assume admission hard: route_approved && replica_count >= zero;
+  invariant approved_path hard: route_approved;
+  invariant replicas_nonnegative hard: replica_count >= zero;
+}
+

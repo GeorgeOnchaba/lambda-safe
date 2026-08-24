@@ -1,0 +1,13 @@
+lambda_safe "0.1";
+contract omitted_preservation version "1.0.0" {
+  unit count;
+  input x: int<count> authority control_plane range [0, 2];
+
+  invariant lower_bound hard: x >= 0;
+  invariant reflexive_bound hard: x <= x;
+
+  degrade incomplete preserves [lower_bound] {
+    primary: next(x) == x;
+    fallback: next(x) == x;
+  }
+}

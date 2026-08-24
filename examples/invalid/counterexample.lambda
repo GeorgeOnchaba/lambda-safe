@@ -1,0 +1,8 @@
+lambda_safe "0.1";
+contract counterexample version "1.0.0" {
+  unit cpu;
+  input allocated: int<cpu> authority control_plane range [0, 4];
+  input capacity: int<cpu> authority control_plane range [0, 4];
+  invariant within_capacity hard: allocated <= capacity;
+}
+

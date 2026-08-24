@@ -1,0 +1,26 @@
+[package]
+name = "lambda-safe-cli"
+description = "Command-line interface for the NiGeNje λ-Safe Compiler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "lambda-safe"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+lambda-safe-compiler = { path = "../lambda-safe-compiler" }
+lambda-safe-emit = { path = "../lambda-safe-emit" }
+lambda-safe-model = { path = "../lambda-safe-model" }
+lambda-safe-solver = { path = "../lambda-safe-solver" }
+lambda-safe-syntax = { path = "../lambda-safe-syntax" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

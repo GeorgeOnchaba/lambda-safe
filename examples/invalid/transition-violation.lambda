@@ -1,0 +1,13 @@
+lambda_safe "0.1";
+contract unsafe_transition version "1.0.0" {
+  unit count;
+  const zero: int<count> = 0;
+  input replicas: int<count> authority control_plane range [0, 2];
+  assume safe_before hard: replicas >= zero;
+  invariant nonnegative hard: replicas >= zero;
+  degrade unsafe_fallback preserves [nonnegative] {
+    primary: next(replicas) == replicas;
+    fallback: next(replicas) < zero;
+  }
+}
+

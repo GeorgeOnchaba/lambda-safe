@@ -1,0 +1,64 @@
+{
+  "schema_version": "0.1",
+  "language_version": "0.1",
+  "contract_id": "node_capacity_json",
+  "contract_version": "1.0.0",
+  "units": [
+    {"name": "cpu_milli", "base": "cpu_milli", "scale": 1},
+    {"name": "milliseconds", "base": "milliseconds", "scale": 1}
+  ],
+  "constants": [
+    {"name": "zero_cpu", "value": 0, "unit": "cpu_milli"},
+    {"name": "latency_limit", "value": 80, "unit": "milliseconds"}
+  ],
+  "symbols": [
+    {
+      "name": "allocated_cpu",
+      "value_type": {"kind": "integer", "unit": "cpu_milli"},
+      "authority": "control_plane",
+      "minimum": 0,
+      "maximum": 8
+    },
+    {
+      "name": "node_capacity_cpu",
+      "value_type": {"kind": "integer", "unit": "cpu_milli"},
+      "authority": "control_plane",
+      "minimum": 0,
+      "maximum": 8
+    },
+    {
+      "name": "predicted_latency",
+      "value_type": {"kind": "integer", "unit": "milliseconds"},
+      "authority": "predictive",
+      "minimum": 0,
+      "maximum": 200,
+      "provenance": {
+        "source": "latency_model",
+        "version": "3.2.1",
+        "digest": "sha256:example"
+      }
+    }
+  ],
+  "assumptions": [
+    {"id": "capacity_policy", "class": "hard", "expression": "allocated_cpu <= node_capacity_cpu"}
+  ],
+  "invariants": [
+    {"id": "allocation_within_capacity", "class": "hard", "expression": "allocated_cpu <= node_capacity_cpu"},
+    {"id": "preferred_latency", "class": "soft", "expression": "predicted_latency <= latency_limit"}
+  ],
+  "transitions": [
+    {
+      "id": "capacity_fallback",
+      "kind": "degrade",
+      "preserves": ["allocation_within_capacity"],
+      "branches": [
+        {"name": "primary", "relation": "next(allocated_cpu) == allocated_cpu && next(node_capacity_cpu) == node_capacity_cpu"},
+        {"name": "fallback", "relation": "next(allocated_cpu) <= next(node_capacity_cpu)"}
+      ]
+    }
+  ],
+  "tokens": [{"name": "allocation_lease"}],
+  "consumes": [{"name": "allocation_lease"}],
+  "metadata": {"owner": "platform_engineering"}
+}
+

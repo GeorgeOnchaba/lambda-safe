@@ -1,0 +1,24 @@
+[package]
+name = "lambda-safe-emit"
+description = "Canonical manifests, λ-certificates, digests and signatures"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+base64.workspace = true
+ed25519-dalek.workspace = true
+hex.workspace = true
+lambda-safe-check = { path = "../lambda-safe-check" }
+lambda-safe-model = { path = "../lambda-safe-model" }
+serde.workspace = true
+serde_jcs.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
+

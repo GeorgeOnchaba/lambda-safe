@@ -1,0 +1,12 @@
+/target/
+/.idea/
+/.vscode/
+*.log
+*.tmp
+*.swp
+.DS_Store
+/artifacts/
+/reports/generated/
+/fuzz/artifacts/
+/fuzz/corpus/
+

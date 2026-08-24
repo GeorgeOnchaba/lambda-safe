@@ -1,0 +1,278 @@
+openapi: 3.1.0
+info:
+  title: NiGeNje λ-Safe Compiler API
+  version: 0.1.0
+  description: Stateless parsing, static checking, certification and artifact verification.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /healthz:
+    get:
+      operationId: health
+      responses:
+        "200":
+          description: Process is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /readyz:
+    get:
+      operationId: readiness
+      responses:
+        "200":
+          description: Process completed startup dependency checks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /v1/info:
+    get:
+      operationId: compilerInfo
+      responses:
+        "200":
+          description: Compiler and decision-procedure identity.
+          content:
+            application/json:
+              schema:
+                type: object
+  /v1/check:
+    post:
+      operationId: checkContract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../schemas/compile-request.schema.json"
+      responses:
+        "400":
+          description: Malformed JSON request body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "200":
+          description: All static gates passed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckResult"
+        "413":
+          description: Request exceeded configured body limit.
+        "415":
+          description: Request content type is not JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Parsing or a static gate failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckResult"
+        "500":
+          description: Compiler worker task failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Compiler work capacity is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/compile:
+    post:
+      operationId: compileContract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../schemas/compile-request.schema.json"
+      responses:
+        "400":
+          description: Malformed JSON request body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "200":
+          description: Hard obligations discharged and artifacts emitted.
+          content:
+            application/json:
+              schema:
+                $ref: "../schemas/compile-response.schema.json"
+        "409":
+          description: Infeasible assumptions or invariant counterexample.
+          content:
+            application/json:
+              schema:
+                $ref: "../schemas/compile-response.schema.json"
+        "413":
+          description: Request exceeded configured body limit.
+        "415":
+          description: Request content type is not JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Malformed, unsupported or authority-invalid contract.
+          content:
+            application/json:
+              schema:
+                $ref: "../schemas/compile-response.schema.json"
+        "503":
+          description: Decision was indeterminate or a resource bound was reached.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "../schemas/compile-response.schema.json"
+                  - $ref: "#/components/schemas/Error"
+        "500":
+          description: Compiler worker task failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/certificates/verify:
+    post:
+      operationId: verifyCertificate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyRequest"
+      responses:
+        "400":
+          description: Malformed JSON request body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "200":
+          description: Manifest, body digest and optional signature are valid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Verification"
+        "422":
+          description: Artifact verification failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Verification"
+        "415":
+          description: Request content type is not JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Compiler worker task failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Compiler work capacity is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          enum: [LSC-I001, LSC-I002, LSC-I003]
+        message:
+          type: string
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, service, version]
+      properties:
+        status:
+          const: ok
+        service:
+          const: lambda-safe-service
+        version:
+          type: string
+    Diagnostic:
+      type: object
+      additionalProperties: true
+      required: [code, severity, message]
+      properties:
+        code:
+          type: string
+        severity:
+          enum: [error, warning, information]
+        message:
+          type: string
+    CheckResult:
+      type: object
+      additionalProperties: false
+      required: [valid, diagnostics]
+      properties:
+        valid:
+          type: boolean
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/Diagnostic"
+        summary:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required:
+                - contract_id
+                - hard_assumptions
+                - hard_invariants
+                - transitions
+                - linear_tokens
+                - excluded_claims
+              properties:
+                contract_id: {type: string}
+                hard_assumptions: {type: integer, minimum: 0}
+                hard_invariants: {type: integer, minimum: 0}
+                transitions: {type: integer, minimum: 0}
+                linear_tokens: {type: integer, minimum: 0}
+                excluded_claims: {type: integer, minimum: 0}
+            - type: "null"
+    VerifyRequest:
+      type: object
+      additionalProperties: false
+      required: [manifest, certificate]
+      properties:
+        manifest:
+          $ref: "../schemas/manifest.schema.json"
+        certificate:
+          $ref: "../schemas/certificate.schema.json"
+    Verification:
+      type: object
+      additionalProperties: false
+      required: [valid, checks, diagnostics]
+      properties:
+        valid:
+          type: boolean
+        checks:
+          type: object
+          additionalProperties:
+            type: boolean
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/Diagnostic"
