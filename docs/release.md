@@ -4,7 +4,7 @@
    changelog.
 2. Generate and commit `Cargo.lock` using the pinned Rust toolchain.
 3. Run `./scripts/verify.sh` in a clean checkout with Z3 installed.
-4. Run a time-bounded fuzz campaign for both targets.
+4. Run a time-bounded fuzz campaign for every declared target.
 5. Build release binaries on supported targets and run the smoke test.
 6. Generate SBOM, checksums and build provenance.
 7. Sign the annotated Git tag and release checksums.

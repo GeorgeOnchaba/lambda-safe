@@ -22,7 +22,6 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit,cargo-deny
-      - run: cargo generate-lockfile
       - run: cargo audit
       - run: cargo deny check
 

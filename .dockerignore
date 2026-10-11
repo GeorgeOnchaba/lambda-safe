@@ -5,3 +5,7 @@ target
 fuzz/target
 *.zip
 reports/local-*
+.env
+.env.*
+secrets/
+*.token
