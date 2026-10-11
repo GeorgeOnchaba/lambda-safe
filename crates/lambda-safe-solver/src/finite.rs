@@ -67,11 +67,7 @@ impl DecisionProcedure for FiniteModelSolver {
         }
     }
 
-    fn solve(
-        &self,
-        query: &SolverQuery,
-        timeout: Duration,
-    ) -> Result<DecisionResult, SolverError> {
+    fn solve(&self, query: &SolverQuery, timeout: Duration) -> Result<DecisionResult, SolverError> {
         let variables = match build_variables(query, &self.config) {
             Ok(variables) => variables,
             Err(reason) => return Ok(DecisionResult::Unknown(reason)),
@@ -167,9 +163,7 @@ fn build_variables(
                         config.max_values_per_integer
                     ));
                 }
-                (minimum..=maximum)
-                    .map(PrimitiveValue::Integer)
-                    .collect()
+                (minimum..=maximum).map(PrimitiveValue::Integer).collect()
             }
         };
         variables.push(Variable {
@@ -260,14 +254,16 @@ fn evaluate(
     match &expression.kind {
         ExprKind::Integer { value } => Ok(PrimitiveValue::Integer(*value)),
         ExprKind::Boolean { value } => Ok(PrimitiveValue::Boolean(*value)),
-        ExprKind::Variable { name } => assignment.get(name).cloned().ok_or_else(|| {
-            SolverError::Evaluation(format!("missing assignment for `{name}`"))
-        }),
+        ExprKind::Variable { name } => assignment
+            .get(name)
+            .cloned()
+            .ok_or_else(|| SolverError::Evaluation(format!("missing assignment for `{name}`"))),
         ExprKind::NextVariable { name } => {
             let key = format!("{name}__next");
-            assignment.get(&key).cloned().ok_or_else(|| {
-                SolverError::Evaluation(format!("missing assignment for `{key}`"))
-            })
+            assignment
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| SolverError::Evaluation(format!("missing assignment for `{key}`")))
         }
         ExprKind::Unary {
             operator,
@@ -302,8 +298,8 @@ fn evaluate_binary(
     right: PrimitiveValue,
 ) -> Result<PrimitiveValue, SolverError> {
     use BinaryOperator::{
-        Add, And, Equal, GreaterThan, GreaterThanOrEqual, Implies, LessThan,
-        LessThanOrEqual, Multiply, NotEqual, Or, Subtract,
+        Add, And, Equal, GreaterThan, GreaterThanOrEqual, Implies, LessThan, LessThanOrEqual,
+        Multiply, NotEqual, Or, Subtract,
     };
     match (operator, left, right) {
         (Add, PrimitiveValue::Integer(left), PrimitiveValue::Integer(right)) => left
@@ -408,3 +404,4 @@ mod tests {
         assert_eq!(result, DecisionResult::Unsat);
     }
 }
+

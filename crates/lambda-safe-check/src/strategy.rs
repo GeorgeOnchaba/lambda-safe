@@ -19,7 +19,10 @@ pub struct StrategyDefinition {
 #[must_use]
 pub fn builtin_strategies() -> Vec<StrategyDefinition> {
     let mut strategies = vec![
-        strategy("escrow_balance", &["bounded_accounting", "deterministic_merge"]),
+        strategy(
+            "escrow_balance",
+            &["bounded_accounting", "deterministic_merge"],
+        ),
         strategy("gcounter", &["monotone", "join_semilattice"]),
         strategy("lww_register", &["deterministic_tie_break"]),
         strategy("orset", &["observed_remove", "join_semilattice"]),

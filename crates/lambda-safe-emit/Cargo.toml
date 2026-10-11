@@ -12,8 +12,8 @@ repository.workspace = true
 base64.workspace = true
 ed25519-dalek.workspace = true
 hex.workspace = true
-lambda-safe-check = { path = "../lambda-safe-check" }
-lambda-safe-model = { path = "../lambda-safe-model" }
+lambda-safe-check = { path = "../lambda-safe-check", version = "0.1.0" }
+lambda-safe-model = { path = "../lambda-safe-model", version = "0.1.0" }
 serde.workspace = true
 serde_jcs.workspace = true
 sha2.workspace = true
@@ -21,4 +21,5 @@ thiserror.workspace = true
 
 [lints]
 workspace = true
+
 

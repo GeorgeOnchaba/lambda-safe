@@ -9,11 +9,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-lambda-safe-model = { path = "../lambda-safe-model" }
+lambda-safe-model = { path = "../lambda-safe-model", version = "0.1.0" }
 serde.workspace = true
 
 [dev-dependencies]
-lambda-safe-syntax = { path = "../lambda-safe-syntax" }
+lambda-safe-syntax = { path = "../lambda-safe-syntax", version = "0.1.0" }
 
 [lints]
 workspace = true
+

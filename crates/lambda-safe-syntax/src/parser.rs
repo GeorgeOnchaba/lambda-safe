@@ -1,12 +1,12 @@
 use crate::SyntaxError;
 use crate::lexer::{Token, TokenKind, lex};
+use lambda_safe_model::CONTRACT_SCHEMA_VERSION;
 use lambda_safe_model::{
     AssumptionDefinition, AuthorityClass, BinaryOperator, ClaimClass, ConstantDefinition,
     ContractDocument, Expr, ExprKind, InvariantDefinition, LinearTokenDefinition, SourceSpan,
     SymbolDefinition, TokenConsume, TransitionBranch, TransitionDefinition, TransitionKind,
     UnaryOperator, UnitDefinition, ValueType, codes,
 };
-use lambda_safe_model::CONTRACT_SCHEMA_VERSION;
 use std::collections::BTreeMap;
 
 /// Parses a complete textual λ-Safe contract.
@@ -85,15 +85,13 @@ impl Parser {
                 "metadata" => {
                     let (key, value) = self.parse_metadata()?;
                     if document.metadata.insert(key.clone(), value).is_some() {
-                        return Err(self.error_previous(format!(
-                            "duplicate metadata key `{key}`"
-                        )));
+                        return Err(self.error_previous(format!("duplicate metadata key `{key}`")));
                     }
                 }
                 unknown => {
-                    return Err(self.error_here(format!(
-                        "unknown top-level declaration `{unknown}`"
-                    )));
+                    return Err(
+                        self.error_here(format!("unknown top-level declaration `{unknown}`"))
+                    );
                 }
             }
         }
@@ -148,8 +146,9 @@ impl Parser {
         };
         self.expect_word("authority")?;
         let authority_name = self.expect_ident("authority class")?;
-        let authority = parse_authority(&authority_name)
-            .ok_or_else(|| self.error_previous(format!("unknown authority class `{authority_name}`")))?;
+        let authority = parse_authority(&authority_name).ok_or_else(|| {
+            self.error_previous(format!("unknown authority class `{authority_name}`"))
+        })?;
 
         let (minimum, maximum) = if self.match_word("range") {
             self.expect_kind(&TokenKind::LeftBracket, "`[`")?;
@@ -243,7 +242,10 @@ impl Parser {
         })
     }
 
-    fn parse_named_relation(&mut self, expected_name: &str) -> Result<TransitionBranch, SyntaxError> {
+    fn parse_named_relation(
+        &mut self,
+        expected_name: &str,
+    ) -> Result<TransitionBranch, SyntaxError> {
         let start = self.expect_word(expected_name)?;
         self.expect_kind(&TokenKind::Colon, "`:`")?;
         let relation = self.parse_implication()?;
@@ -517,9 +519,9 @@ impl Parser {
             ));
         };
         if negative {
-            value.checked_neg().ok_or_else(|| {
-                self.error_previous(format!("{expected} is outside the i64 range"))
-            })
+            value
+                .checked_neg()
+                .ok_or_else(|| self.error_previous(format!("{expected} is outside the i64 range")))
         } else {
             Ok(value)
         }
@@ -718,7 +720,10 @@ mod tests {
             }
         "#;
         let document = parse_lambda_source(source).expect("valid contract should parse");
-        assert_eq!(document.language_version, lambda_safe_model::LANGUAGE_VERSION);
+        assert_eq!(
+            document.language_version,
+            lambda_safe_model::LANGUAGE_VERSION
+        );
         assert_eq!(document.invariants.len(), 1);
     }
 
@@ -728,3 +733,4 @@ mod tests {
         assert!(parse_expression(&source).is_err());
     }
 }
+

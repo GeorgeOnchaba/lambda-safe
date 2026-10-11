@@ -72,11 +72,7 @@ impl DecisionProcedure for Z3ProcessSolver {
         }
     }
 
-    fn solve(
-        &self,
-        query: &SolverQuery,
-        timeout: Duration,
-    ) -> Result<DecisionResult, SolverError> {
+    fn solve(&self, query: &SolverQuery, timeout: Duration) -> Result<DecisionResult, SolverError> {
         let started = Instant::now();
         let script = emit_smt2(query, timeout);
         let output = self.run_process(&script, timeout)?;
@@ -93,9 +89,9 @@ impl DecisionProcedure for Z3ProcessSolver {
                 truncate(stderr.trim(), 2_048)
             })),
             "sat" => {
-                let remaining = timeout.checked_sub(started.elapsed()).ok_or_else(|| {
-                    SolverError::Timeout(timeout.as_millis() as u64)
-                })?;
+                let remaining = timeout
+                    .checked_sub(started.elapsed())
+                    .ok_or_else(|| SolverError::Timeout(timeout.as_millis() as u64))?;
                 if remaining.is_zero() {
                     return Err(SolverError::Timeout(timeout.as_millis() as u64));
                 }
@@ -315,7 +311,8 @@ mod tests {
 
     #[test]
     fn parses_simple_integer_and_boolean_model() {
-        let model = "sat\n(\n (define-fun x () Int\n  (- 2))\n (define-fun enabled () Bool\n  true)\n)";
+        let model =
+            "sat\n(\n (define-fun x () Int\n  (- 2))\n (define-fun enabled () Bool\n  true)\n)";
         let parsed = parse_simple_model(model);
         assert_eq!(parsed.get("x"), Some(&PrimitiveValue::Integer(-2)));
         assert_eq!(parsed.get("enabled"), Some(&PrimitiveValue::Boolean(true)));
@@ -334,3 +331,4 @@ mod tests {
         assert!(truncated.is_char_boundary(truncated.len()));
     }
 }
+

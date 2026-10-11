@@ -4,8 +4,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use lambda_safe_check::{
     CanonicalHardInput, CheckedContract, CoreClaim, CoreSymbol, CoreTransition,
-    CoreTransitionBranch, CoreType, StrategyDefinition, builtin_strategies,
-    is_valid_identifier,
+    CoreTransitionBranch, CoreType, StrategyDefinition, builtin_strategies, is_valid_identifier,
 };
 use lambda_safe_model::{
     AuthorityClass, CANONICALIZATION_ID, CERTIFICATE_SCHEMA_VERSION, COMPILER_VERSION,
@@ -190,8 +189,8 @@ pub fn verify_artifacts(
         manifest.contract_id == certificate.body.contract_id
             && manifest.contract_version == certificate.body.contract_version,
     );
-    let reconstructed_hard_input_digest = reconstruct_hard_input(manifest)
-        .and_then(|input| digest_value(&input).ok());
+    let reconstructed_hard_input_digest =
+        reconstruct_hard_input(manifest).and_then(|input| digest_value(&input).ok());
     let _ = checks.insert(
         "hard_input_digest".to_owned(),
         reconstructed_hard_input_digest.as_deref()
@@ -243,9 +242,19 @@ pub fn verify_artifacts(
             && valid_digest(&certificate.body.hard_input_digest)
             && valid_digest(&certificate.body.assumptions_digest)
             && valid_digest(&certificate.body.strategy_registry_digest)
-            && certificate.body.hard_claim_digests.iter().all(|value| valid_digest(value))
-            && manifest.assumptions.iter().all(|claim| valid_digest(&claim.digest))
-            && manifest.invariants.iter().all(|claim| valid_digest(&claim.digest))
+            && certificate
+                .body
+                .hard_claim_digests
+                .iter()
+                .all(|value| valid_digest(value))
+            && manifest
+                .assumptions
+                .iter()
+                .all(|claim| valid_digest(&claim.digest))
+            && manifest
+                .invariants
+                .iter()
+                .all(|claim| valid_digest(&claim.digest))
             && manifest
                 .transitions
                 .iter()
@@ -466,9 +475,13 @@ fn valid_digest(value: &str) -> bool {
 
 /// Parses a 32-byte Ed25519 secret key encoded as 64 hexadecimal characters.
 pub fn signing_key_from_hex(value: &str) -> Result<SigningKey, EmitError> {
-    let bytes = hex::decode(value.trim()).map_err(|error| EmitError::InvalidKey(error.to_string()))?;
+    let bytes =
+        hex::decode(value.trim()).map_err(|error| EmitError::InvalidKey(error.to_string()))?;
     let array: [u8; 32] = bytes.try_into().map_err(|bytes: Vec<u8>| {
-        EmitError::InvalidKey(format!("expected 32 secret-key bytes, found {}", bytes.len()))
+        EmitError::InvalidKey(format!(
+            "expected 32 secret-key bytes, found {}",
+            bytes.len()
+        ))
     })?;
     Ok(SigningKey::from_bytes(&array))
 }
@@ -485,9 +498,7 @@ pub fn digest_value<T: Serialize + ?Sized>(value: &T) -> Result<String, EmitErro
 }
 
 /// Digest of the current strategy registry, exposed for integrations and tests.
-pub fn strategy_registry_digest(
-    strategies: &[StrategyDefinition],
-) -> Result<String, EmitError> {
+pub fn strategy_registry_digest(strategies: &[StrategyDefinition]) -> Result<String, EmitError> {
     digest_value(strategies)
 }
 
@@ -506,7 +517,8 @@ fn manifest_claim(id: &str, expression: &str) -> Result<ManifestClaim, EmitError
 }
 
 fn sign_digest(digest_hex: &str, signing_key: &SigningKey) -> Result<SignatureEnvelope, EmitError> {
-    let digest = hex::decode(digest_hex).map_err(|error| EmitError::InvalidKey(error.to_string()))?;
+    let digest =
+        hex::decode(digest_hex).map_err(|error| EmitError::InvalidKey(error.to_string()))?;
     let signature: Signature = signing_key.sign(&digest);
     Ok(SignatureEnvelope {
         algorithm: "Ed25519".to_owned(),
@@ -522,7 +534,8 @@ fn verify_signature(digest_hex: &str, envelope: &SignatureEnvelope) -> Result<()
             envelope.algorithm
         )));
     }
-    let digest = hex::decode(digest_hex).map_err(|error| EmitError::InvalidKey(error.to_string()))?;
+    let digest =
+        hex::decode(digest_hex).map_err(|error| EmitError::InvalidKey(error.to_string()))?;
     let public_key = STANDARD
         .decode(&envelope.public_key)
         .map_err(|error| EmitError::InvalidKey(error.to_string()))?;
@@ -530,10 +543,16 @@ fn verify_signature(digest_hex: &str, envelope: &SignatureEnvelope) -> Result<()
         .decode(&envelope.signature)
         .map_err(|error| EmitError::InvalidKey(error.to_string()))?;
     let public_key: [u8; 32] = public_key.try_into().map_err(|bytes: Vec<u8>| {
-        EmitError::InvalidKey(format!("expected 32 public-key bytes, found {}", bytes.len()))
+        EmitError::InvalidKey(format!(
+            "expected 32 public-key bytes, found {}",
+            bytes.len()
+        ))
     })?;
     let signature: [u8; 64] = signature.try_into().map_err(|bytes: Vec<u8>| {
-        EmitError::InvalidKey(format!("expected 64 signature bytes, found {}", bytes.len()))
+        EmitError::InvalidKey(format!(
+            "expected 64 signature bytes, found {}",
+            bytes.len()
+        ))
     })?;
     let verifying_key = VerifyingKey::from_bytes(&public_key)
         .map_err(|error| EmitError::InvalidKey(error.to_string()))?;
@@ -601,3 +620,4 @@ mod tests {
         let _phantom: Option<CheckedContract> = None;
     }
 }
+

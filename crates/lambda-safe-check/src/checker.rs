@@ -1,12 +1,15 @@
+Warning: truncated output (original token count: 12883)
+Total output lines: 1468
+
 use crate::core::{
     CanonicalHardInput, CheckedContract, CoreClaim, CoreSymbol, CoreTransition,
     CoreTransitionBranch, CoreType, StaticFailure, claim_class_name,
 };
 use crate::{StrategyDefinition, builtin_strategies};
 use lambda_safe_model::{
-    AuthorityClass, BinaryOperator, ClaimClass, CompileStatus, ContractDocument, Diagnostic,
-    ExcludedClaim, Expr, ExprKind, SourceSpan, TransitionKind, UnaryOperator, ValueType, codes,
-    CONTRACT_SCHEMA_VERSION, LANGUAGE_VERSION,
+    AuthorityClass, BinaryOperator, CONTRACT_SCHEMA_VERSION, ClaimClass, CompileStatus,
+    ContractDocument, Diagnostic, ExcludedClaim, Expr, ExprKind, LANGUAGE_VERSION, SourceSpan,
+    TransitionKind, UnaryOperator, ValueType, codes,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -98,9 +101,7 @@ pub fn check_contract(
                     ClaimClass::Trusted => {
                         "trusted-report claim is recorded but never elevated into hard output"
                     }
-                    ClaimClass::Soft => {
-                        "soft or predictive claim is outside hard certification"
-                    }
+                    ClaimClass::Soft => "soft or predictive claim is outside hard certification",
                     ClaimClass::Hard => unreachable!("hard claims are handled separately"),
                 }
                 .to_owned(),
@@ -392,9 +393,7 @@ fn resolve_unit(
             CompileStatus::Indeterminate,
             Diagnostic::error(
                 codes::RESOURCE_LIMIT,
-                format!(
-                    "unit alias chain exceeds the supported depth of {MAX_UNIT_CHAIN_DEPTH}"
-                ),
+                format!("unit alias chain exceeds the supported depth of {MAX_UNIT_CHAIN_DEPTH}"),
             )
             .at(*span)
             .for_subject(name),
@@ -413,12 +412,9 @@ fn resolve_unit(
         if *scale != 1 {
             return Err(failure(
                 CompileStatus::MalformedContract,
-                Diagnostic::error(
-                    codes::UNIT_MISMATCH,
-                    "a base unit must have scale one",
-                )
-                .at(*span)
-                .for_subject(name),
+                Diagnostic::error(codes::UNIT_MISMATCH, "a base unit must have scale one")
+                    .at(*span)
+                    .for_subject(name),
             ));
         }
         ResolvedUnit {
@@ -454,548 +450,15 @@ fn resolve_unit(
                     format!("canonical unit scale {total} exceeds configured limit {max_scale}"),
                 )
                 .at(*span)
-                .for_subject(name),
-            ));
-        }
-        ResolvedUnit {
-            base: parent.base,
-            scale: total,
-        }
-    };
-    let _ = visiting.remove(name);
-    let _ = resolved.insert(name.to_owned(), unit.clone());
-    Ok(unit)
-}
-
-#[derive(Clone, Debug)]
-struct Binding {
-    value_type: SemanticType,
-    authority: AuthorityClass,
-    constant: Option<i64>,
-    nominal_scale: i64,
-    is_runtime_symbol: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum SemanticType {
-    Boolean,
-    Integer { base: Option<String> },
-}
-
-fn build_environment(
-    document: &ContractDocument,
-    units: &BTreeMap<String, ResolvedUnit>,
-) -> Result<(BTreeMap<String, Binding>, BTreeMap<String, CoreSymbol>), CheckFailure> {
-    let mut environment = BTreeMap::new();
-    let mut symbols = BTreeMap::new();
-
-    for constant in &document.constants {
-        check_identifier(&constant.name, constant.span, "constant")?;
-        let unit = units.get(&constant.unit).ok_or_else(|| {
-            failure(
-                CompileStatus::MalformedContract,
-                Diagnostic::error(
-                    codes::UNIT_MISMATCH,
-                    format!("constant `{}` uses unknown unit `{}`", constant.name, constant.unit),
-                )
-                .at(constant.span)
-                .for_subject(&constant.name),
-            )
-        })?;
-        let value = constant.value.checked_mul(unit.scale).ok_or_else(|| {
-            failure(
-                CompileStatus::Unsupported,
-                Diagnostic::error(
-                    codes::UNIT_MISMATCH,
-                    format!("constant `{}` overflows during unit normalization", constant.name),
-                )
-                .at(constant.span),
-            )
-        })?;
-        let binding = Binding {
-            value_type: SemanticType::Integer {
-                base: (unit.base != "unitless").then(|| unit.base.clone()),
-            },
-            authority: AuthorityClass::Constant,
-            constant: Some(value),
-            nominal_scale: unit.scale,
-            is_runtime_symbol: false,
-        };
-        if environment.insert(constant.name.clone(), binding).is_some() {
-            return Err(duplicate(&constant.name, constant.span));
-        }
-    }
-
-    for symbol in &document.symbols {
-        check_identifier(&symbol.name, symbol.span, "input")?;
-        if symbol.authority == AuthorityClass::Constant {
-            return Err(failure(
-                CompileStatus::MalformedContract,
-                Diagnostic::error(
-                    codes::AUTHORITY_VIOLATION,
-                    "runtime inputs cannot use `constant` authority",
-                )
-                .at(symbol.span)
-                .for_subject(&symbol.name)
-                .with_help("Use a `const` declaration for compile-time constants."),
-            ));
-        }
-        let (semantic_type, core_type, scale) = match &symbol.value_type {
-            ValueType::Boolean => {
-                if symbol.minimum.is_some() || symbol.maximum.is_some() {
-                    return Err(failure(
-                        CompileStatus::MalformedContract,
-                        Diagnostic::error(codes::TYPE_MISMATCH, "boolean inputs cannot have integer ranges")
-                            .at(symbol.span)
-                            .for_subject(&symbol.name),
-                    ));
-                }
-                (SemanticType::Boolean, CoreType::Boolean, 1)
-            }
-            ValueType::Integer { unit } => {
-                let resolved = units.get(unit).ok_or_else(|| {
-                    failure(
-                        CompileStatus::MalformedContract,
-                        Diagnostic::error(
-                            codes::UNIT_MISMATCH,
-                            format!("input `{}` uses unknown unit `{unit}`", symbol.name),
-                        )
-                        .at(symbol.span)
-                        .for_subject(&symbol.name),
-                    )
-                })?;
-                if matches!((symbol.minimum, symbol.maximum), (Some(min), Some(max)) if min > max) {
-                    return Err(failure(
-                        CompileStatus::MalformedContract,
-                        Diagnostic::error(codes::TYPE_MISMATCH, "input minimum is greater than maximum")
-                            .at(symbol.span)
-                            .for_subject(&symbol.name),
-                    ));
-                }
-                (
-                    SemanticType::Integer {
-                        base: (resolved.base != "unitless")
-                            .then(|| resolved.base.clone()),
-                    },
-                    CoreType::Integer {
-                        base_unit: resolved.base.clone(),
-                        scale: resolved.scale,
-                    },
-                    resolved.scale,
-                )
-            }
-        };
-        let binding = Binding {
-            value_type: semantic_type,
-            authority: symbol.authority,
-            constant: None,
-            nominal_scale: scale,
-            is_runtime_symbol: true,
-        };
-        if environment.insert(symbol.name.clone(), binding).is_some() {
-            return Err(duplicate(&symbol.name, symbol.span));
-        }
-        let _ = symbols.insert(
-            symbol.name.clone(),
-            CoreSymbol {
-                name: symbol.name.clone(),
-                value_type: core_type,
-                authority: symbol.authority,
-                minimum: symbol.minimum,
-                maximum: symbol.maximum,
-            },
-        );
-    }
-    Ok((environment, symbols))
-}
-
-fn check_unique_claim_ids(document: &ContractDocument) -> Result<(), CheckFailure> {
-    let mut ids = BTreeSet::new();
-    for (id, span) in document
-        .assumptions
-        .iter()
-        .map(|value| (&value.id, value.span))
-        .chain(document.invariants.iter().map(|value| (&value.id, value.span)))
-        .chain(document.transitions.iter().map(|value| (&value.id, value.span)))
-    {
-        if !ids.insert(id.clone()) {
-            return Err(duplicate(id, span));
-        }
-    }
-    Ok(())
-}
-
-fn check_linear_tokens(document: &ContractDocument) -> Result<(), CheckFailure> {
-    let mut declared = BTreeSet::new();
-    for token in &document.tokens {
-        check_identifier(&token.name, token.span, "token")?;
-        if !declared.insert(token.name.clone()) {
-            return Err(duplicate(&token.name, token.span));
-        }
-    }
-    let mut counts = BTreeMap::<String, usize>::new();
-    for consumption in &document.consumes {
-        if !declared.contains(&consumption.name) {
-            return Err(failure(
-                CompileStatus::MalformedContract,
-                Diagnostic::error(
-                    codes::LINEAR_TOKEN_ERROR,
-                    format!("unknown linear token `{}`", consumption.name),
-                )
-                .at(consumption.span)
-                .for_subject(&consumption.name),
-            ));
-        }
-        *counts.entry(consumption.name.clone()).or_default() += 1;
-    }
-    for token in declared {
-        let count = counts.get(&token).copied().unwrap_or_default();
-        if count != 1 {
-            return Err(failure(
-                CompileStatus::MalformedContract,
-                Diagnostic::error(
-                    codes::LINEAR_TOKEN_ERROR,
-                    format!("linear token `{token}` must be consumed exactly once; observed {count}"),
-                )
-                .for_subject(token),
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn check_transitions(
-    document: &ContractDocument,
-    environment: &BTreeMap<String, Binding>,
-    hard_invariants: &[CoreClaim],
-    strategies: &[StrategyDefinition],
-) -> Result<Vec<CoreTransition>, CheckFailure> {
-    let hard_ids = hard_invariants
-        .iter()
-        .map(|claim| claim.id.as_str())
-        .collect::<BTreeSet<_>>();
-    let strategy_ids = strategies
-        .iter()
-        .map(|strategy| strategy.id.as_str())
-        .collect::<BTreeSet<_>>();
-    let mut checked = Vec::new();
-
-    for transition in &document.transitions {
-        check_identifier(&transition.id, transition.span, "transition")?;
-        if transition.preserves.is_empty() {
-            return Err(transition_failure(
-                transition.kind,
-                &transition.id,
-                transition.span,
-                "transition must name at least one hard invariant to preserve",
-            ));
-        }
-        let mut preserves = transition.preserves.clone();
-        preserves.sort();
-        let original_preserve_count = preserves.len();
-        preserves.dedup();
-        if preserves.len() != original_preserve_count {
-            return Err(transition_failure(
-                transition.kind,
-                &transition.id,
-                transition.span,
-                "transition preservation list contains a duplicate invariant",
-            ));
-        }
-        for invariant in &preserves {
-            if !hard_ids.contains(invariant.as_str()) {
-                return Err(transition_failure(
-                    transition.kind,
-                    &transition.id,
-                    transition.span,
-                    format!("`{invariant}` is not a declared hard invariant"),
-                ));
-            }
-        }
-        let preserve_ids = preserves
-            .iter()
-            .map(String::as_str)
-            .collect::<BTreeSet<_>>();
-        if preserve_ids != hard_ids {
-            let missing = hard_ids
-                .difference(&preserve_ids)
-                .copied()
-                .collect::<Vec<_>>();
-            return Err(transition_failure(
-                transition.kind,
-                &transition.id,
-                transition.span,
-                format!(
-                    "transition must preserve every hard invariant; missing [{}]",
-                    missing.join(", ")
-                ),
-            ));
-        }
-
-        match transition.kind {
-            TransitionKind::Degrade => {
-                if transition.strategy.is_some()
-                    || transition.branches.len() != 2
-                    || transition.branches[0].name != "primary"
-                    || transition.branches[1].name != "fallback"
-                {
-                    return Err(transition_failure(
-                        transition.kind,
-                        &transition.id,
-                        transition.span,
-                        "degrade requires ordered `primary` and `fallback` branches and no strategy",
-                    ));
-                }
-            }
-            TransitionKind::Reconcile => {
-                let Some(strategy) = &transition.strategy else {
-                    return Err(transition_failure(
-                        transition.kind,
-                        &transition.id,
-                        transition.span,
-                        "reconcile requires a registered strategy",
-                    ));
-                };
-                if !strategy_ids.contains(strategy.as_str()) {
-                    return Err(transition_failure(
-                        transition.kind,
-                        &transition.id,
-                        transition.span,
-                        format!("reconciliation strategy `{strategy}` is not registered"),
-                    ));
-                }
-                if transition.branches.len() != 1 || transition.branches[0].name != "merge" {
-                    return Err(transition_failure(
-                        transition.kind,
-                        &transition.id,
-                        transition.span,
-                        "reconcile requires exactly one `merge` relation",
-                    ));
-                }
-            }
-        }
-
-        let mut branches = Vec::new();
-        for branch in &transition.branches {
-            if !branch.relation.contains_next_variable() {
-                return Err(transition_failure(
-                    transition.kind,
-                    &transition.id,
-                    branch.span,
-                    format!("branch `{}` does not constrain any post-state variable", branch.name),
-                ));
-            }
-            ensure_hard_authority(&branch.relation, environment, &transition.id)?;
-            let typed = lower_expression(&branch.relation, environment, true)?;
-            require_boolean(&typed, branch.relation.span, &transition.id)?;
-            branches.push(CoreTransitionBranch {
-                name: branch.name.clone(),
-                canonical_relation: canonical_expression(&typed.expression),
-                relation: typed.expression,
-            });
-        }
-        checked.push(CoreTransition {
-            id: transition.id.clone(),
-            kind: transition.kind,
-            strategy: transition.strategy.clone(),
-            preserves,
-            branches,
-        });
-    }
-    checked.sort_by(|left, right| left.id.cmp(&right.id));
-    Ok(checked)
-}
-
-fn transition_failure(
-    kind: TransitionKind,
-    id: &str,
-    span: SourceSpan,
-    message: impl Into<String>,
-) -> CheckFailure {
-    let code = match kind {
-        TransitionKind::Degrade => codes::DEGRADE_VIOLATION,
-        TransitionKind::Reconcile => codes::RECONCILE_VIOLATION,
-    };
-    failure(
-        CompileStatus::Unsupported,
-        Diagnostic::error(code, message).at(span).for_subject(id),
-    )
-}
-
-#[derive(Clone, Debug)]
-struct TypedExpression {
-    expression: Expr,
-    value_type: SemanticType,
-    constant_value: Option<i64>,
-}
-
-fn lower_expression(
-    expression: &Expr,
-    environment: &BTreeMap<String, Binding>,
-    allow_next: bool,
-) -> Result<TypedExpression, CheckFailure> {
-    match &expression.kind {
-        ExprKind::Integer { value } => Ok(TypedExpression {
-            expression: expression.clone(),
-            value_type: SemanticType::Integer { base: None },
-            constant_value: Some(*value),
-        }),
-        ExprKind::Boolean { .. } => Ok(TypedExpression {
-            expression: expression.clone(),
-            value_type: SemanticType::Boolean,
-            constant_value: None,
-        }),
-        ExprKind::Variable { name } => lower_binding(name, false, expression.span, environment),
-        ExprKind::NextVariable { name } => {
-            if !allow_next {
-                return Err(failure(
-                    CompileStatus::Unsupported,
-                    Diagnostic::error(
-                        codes::OUTSIDE_FRAGMENT,
-                        "post-state `next(...)` references are legal only in transition relations",
-                    )
-                    .at(expression.span)
-                    .for_subject(name),
-                ));
-            }
-            lower_binding(name, true, expression.span, environment)
-        }
-        ExprKind::Unary {
-            operator,
-            expression: inner,
-        } => {
-            let typed = lower_expression(inner, environment, allow_next)?;
-            match operator {
-                UnaryOperator::Not if typed.value_type == SemanticType::Boolean => {
-                    Ok(TypedExpression {
-                        expression: Expr {
-                            kind: ExprKind::Unary {
-                                operator: *operator,
-                                expression: Box::new(typed.expression),
-                            },
-                            span: expression.span,
-                        },
-                        value_type: SemanticType::Boolean,
-                        constant_value: None,
-                    })
-                }
-                UnaryOperator::Negate => {
-                    let SemanticType::Integer { .. } = &typed.value_type else {
-                        return Err(type_error(expression.span, "integer", "boolean"));
-                    };
-                    let constant_value = typed.constant_value.and_then(i64::checked_neg);
-                    Ok(TypedExpression {
-                        expression: Expr {
-                            kind: ExprKind::Unary {
-                                operator: *operator,
-                                expression: Box::new(typed.expression),
-                            },
-                            span: expression.span,
-                        },
-                        value_type: typed.value_type,
-                        constant_value,
-                    })
-                }
-                UnaryOperator::Not => Err(type_error(expression.span, "boolean", "integer")),
-            }
-        }
-        ExprKind::Binary {
-            operator,
-            left,
-            right,
-        } => {
-            let left = lower_expression(left, environment, allow_next)?;
-            let right = lower_expression(right, environment, allow_next)?;
-            lower_binary(*operator, left, right, expression.span)
-        }
-    }
-}
-
-fn lower_binding(
-    name: &str,
-    next: bool,
-    span: SourceSpan,
-    environment: &BTreeMap<String, Binding>,
-) -> Result<TypedExpression, CheckFailure> {
-    let binding = environment.get(name).ok_or_else(|| {
-        failure(
-            CompileStatus::MalformedContract,
-            Diagnostic::error(codes::UNKNOWN_NAME, format!("unknown identifier `{name}`"))
-                .at(span)
-                .for_subject(name),
-        )
-    })?;
-    if next && !binding.is_runtime_symbol {
-        return Err(failure(
-            CompileStatus::MalformedContract,
-            Diagnostic::error(
-                codes::TYPE_MISMATCH,
-                format!("compile-time constant `{name}` has no post-state value"),
-            )
-            .at(span)
-            .for_subject(name),
-        ));
-    }
-
-    if let Some(value) = binding.constant {
-        return Ok(TypedExpression {
-            expression: Expr {
-                kind: ExprKind::Integer { value },
-                span,
-            },
-            value_type: binding.value_type.clone(),
-            constant_value: Some(value),
-        });
-    }
-
-    let variable = Expr {
-        kind: if next {
-            ExprKind::NextVariable {
-                name: name.to_owned(),
-            }
-        } else {
-            ExprKind::Variable {
-                name: name.to_owned(),
-            }
-        },
-        span,
-    };
-    let normalized = if binding.nominal_scale == 1
-        || binding.value_type == SemanticType::Boolean
-    {
-        variable
-    } else {
-        Expr {
-            kind: ExprKind::Binary {
-                operator: BinaryOperator::Multiply,
-                left: Box::new(Expr::integer(binding.nominal_scale)),
-                right: Box::new(variable),
-            },
-            span,
-        }
-    };
-    Ok(TypedExpression {
-        expression: normalized,
-        value_type: binding.value_type.clone(),
-        constant_value: None,
-    })
-}
-
-fn lower_binary(
-    operator: BinaryOperator,
-    left: TypedExpression,
-    right: TypedExpression,
-    span: SourceSpan,
-) -> Result<TypedExpression, CheckFailure> {
+                .for_subject(n…4883 tokens truncated… CheckFailure> {
     use BinaryOperator::{
-        Add, And, Equal, GreaterThan, GreaterThanOrEqual, Implies, LessThan,
-        LessThanOrEqual, Multiply, NotEqual, Or, Subtract,
+        Add, And, Equal, GreaterThan, GreaterThanOrEqual, Implies, LessThan, LessThanOrEqual,
+        Multiply, NotEqual, Or, Subtract,
     };
 
     let (value_type, constant_value) = match operator {
         And | Or | Implies => {
-            if left.value_type != SemanticType::Boolean
-                || right.value_type != SemanticType::Boolean
+            if left.value_type != SemanticType::Boolean || right.value_type != SemanticType::Boolean
             {
                 return Err(type_error(span, "boolean operands", "integer operand"));
             }
@@ -1115,9 +578,12 @@ fn require_boolean(
     } else {
         Err(failure(
             CompileStatus::MalformedContract,
-            Diagnostic::error(codes::TYPE_MISMATCH, "claim expression must evaluate to boolean")
-                .at(span)
-                .for_subject(subject),
+            Diagnostic::error(
+                codes::TYPE_MISMATCH,
+                "claim expression must evaluate to boolean",
+            )
+            .at(span)
+            .for_subject(subject),
         ))
     }
 }
@@ -1165,7 +631,11 @@ pub fn canonical_expression(expression: &Expr) -> String {
         ExprKind::Unary {
             operator,
             expression,
-        } => format!("({} {})", unary_name(*operator), canonical_expression(expression)),
+        } => format!(
+            "({} {})",
+            unary_name(*operator),
+            canonical_expression(expression)
+        ),
         ExprKind::Binary {
             operator,
             left,
@@ -1305,9 +775,12 @@ fn type_error(span: SourceSpan, expected: &str, actual: &str) -> CheckFailure {
 fn duplicate(name: &str, span: SourceSpan) -> CheckFailure {
     failure(
         CompileStatus::MalformedContract,
-        Diagnostic::error(codes::DUPLICATE_NAME, format!("duplicate identifier `{name}`"))
-            .at(span)
-            .for_subject(name),
+        Diagnostic::error(
+            codes::DUPLICATE_NAME,
+            format!("duplicate identifier `{name}`"),
+        )
+        .at(span)
+        .for_subject(name),
     )
 }
 
@@ -1431,12 +904,12 @@ mod tests {
         let expression = std::iter::repeat_n("allocated", 300)
             .collect::<Vec<_>>()
             .join(" + ");
-        contract.invariants[0].expression =
-            parse_expression(&format!("{expression} <= capacity"))
-                .expect("flat test expression should parse iteratively");
+        contract.invariants[0].expression = parse_expression(&format!("{expression} <= capacity"))
+            .expect("flat test expression should parse iteratively");
         let failure = check_contract(&contract, &CheckConfig::default())
             .expect_err("deep expression tree must fail before lowering");
         assert_eq!(failure.status, CompileStatus::Indeterminate);
         assert_eq!(failure.diagnostics[0].code, codes::RESOURCE_LIMIT);
     }
 }
+

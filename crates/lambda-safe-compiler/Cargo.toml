@@ -10,11 +10,11 @@ repository.workspace = true
 
 [dependencies]
 ed25519-dalek.workspace = true
-lambda-safe-check = { path = "../lambda-safe-check" }
-lambda-safe-emit = { path = "../lambda-safe-emit" }
-lambda-safe-model = { path = "../lambda-safe-model" }
-lambda-safe-solver = { path = "../lambda-safe-solver" }
-lambda-safe-syntax = { path = "../lambda-safe-syntax" }
+lambda-safe-check = { path = "../lambda-safe-check", version = "0.1.0" }
+lambda-safe-emit = { path = "../lambda-safe-emit", version = "0.1.0" }
+lambda-safe-model = { path = "../lambda-safe-model", version = "0.1.0" }
+lambda-safe-solver = { path = "../lambda-safe-solver", version = "0.1.0" }
+lambda-safe-syntax = { path = "../lambda-safe-syntax", version = "0.1.0" }
 serde.workspace = true
 
 [dev-dependencies]
@@ -28,3 +28,4 @@ harness = false
 
 [lints]
 workspace = true
+

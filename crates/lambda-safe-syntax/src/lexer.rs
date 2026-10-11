@@ -1,5 +1,5 @@
 use crate::SyntaxError;
-use lambda_safe_model::{codes, Diagnostic, SourceSpan};
+use lambda_safe_model::{Diagnostic, SourceSpan, codes};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum TokenKind {
@@ -263,3 +263,4 @@ fn invalid(
         }),
     )
 }
+
