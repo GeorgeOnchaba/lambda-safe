@@ -6,7 +6,7 @@ The service is a stateless adapter over the public Rust `Compiler` facade.
 
 | Environment variable | Default | Meaning |
 |---|---|---|
-| `LAMBDA_SAFE_BIND` | `0.0.0.0:8080` | Listen address |
+| `LAMBDA_SAFE_BIND` | `127.0.0.1:8080` | Listen address |
 | `LAMBDA_SAFE_SOLVER` | `z3` | `z3` or exact bounded `finite` |
 | `LAMBDA_SAFE_Z3_PATH` | `z3` | Z3 executable |
 | `LAMBDA_SAFE_TIMEOUT_MS` | `5000` | Deadline per solver obligation |
@@ -16,10 +16,29 @@ The service is a stateless adapter over the public Rust `Compiler` facade.
 | `LAMBDA_SAFE_MAX_SOLVER_OBLIGATIONS` | `2048` | Maximum generated obligations per compile |
 | `LAMBDA_SAFE_MAX_CONCURRENT_REQUESTS` | `32` | In-process concurrent request limit |
 | `LAMBDA_SAFE_SIGNING_KEY_FILE` | unset | Optional hex Ed25519 secret-key file |
+| `LAMBDA_SAFE_API_TOKEN_FILE` | unset | Bearer token file required for non-loopback binds |
 | `RUST_LOG` | `info` | Tracing filter |
 
 The service discovers Z3 before binding. Failure to discover the configured
 binary prevents startup rather than accepting traffic that cannot certify.
+
+The default loopback bind keeps an unauthenticated local instance private. A
+non-loopback bind requires `LAMBDA_SAFE_API_TOKEN_FILE`; its file must contain
+at least 32 visible ASCII characters. All `/v1/*` routes require that token in
+an `Authorization: Bearer ...` header. Health and readiness routes remain
+unauthenticated for probes. Keep the token file readable only by the service
+account, terminate TLS at a trusted reverse proxy, and restrict network access
+to that proxy. Do not expose the service directly to the public internet.
+
+The container image binds to `0.0.0.0` inside the container and requires a
+token at `/run/secrets/lambda-safe-api-token` before it starts. Provide that
+file through the container platform's secret store, make it readable by UID
+10001, and keep the mount read-only. The default bare-metal service bind is
+loopback; use a trusted proxy for TLS and any additional rate limiting or
+tenant-specific authorization.
+
+For a local secret file, generate a high-entropy token outside the repository
+with `openssl rand -hex 32` and mount it read-only at the configured path.
 
 ## Health and readiness
 

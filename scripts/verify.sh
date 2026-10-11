@@ -19,6 +19,7 @@ cargo fmt --manifest-path fuzz/Cargo.toml --all --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-features --locked
 cargo build --workspace --release --locked
-"$repo_dir/scripts/smoke-test.sh" "$repo_dir/target/release/lambda-safe"
+"$repo_dir/scripts/smoke-test.sh" "$repo_dir/target/release/lambda-safe" finite
+"$repo_dir/scripts/smoke-test.sh" "$repo_dir/target/release/lambda-safe" z3
 
 echo "all release checks completed"

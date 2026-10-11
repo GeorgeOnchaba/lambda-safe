@@ -5,6 +5,10 @@
 *.tmp
 *.swp
 .DS_Store
+.env
+.env.*
+secrets/
+*.token
 /artifacts/
 /reports/generated/
 /fuzz/artifacts/

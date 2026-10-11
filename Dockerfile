@@ -2,8 +2,7 @@
 FROM rust:1.85-bookworm AS build
 WORKDIR /source
 COPY . .
-RUN if [ ! -f Cargo.lock ]; then cargo generate-lockfile; fi \
-    && cargo build --locked --release -p lambda-safe-service -p lambda-safe-cli
+RUN cargo build --locked --release -p lambda-safe-service -p lambda-safe-cli
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
@@ -16,6 +15,7 @@ COPY --from=build /source/target/release/lambda-safe /usr/local/bin/lambda-safe
 USER 10001:10001
 EXPOSE 8080
 ENV LAMBDA_SAFE_BIND=0.0.0.0:8080 \
+    LAMBDA_SAFE_API_TOKEN_FILE=/run/secrets/lambda-safe-api-token \
     LAMBDA_SAFE_SOLVER=z3 \
     LAMBDA_SAFE_Z3_PATH=/usr/bin/z3 \
     RUST_LOG=info
