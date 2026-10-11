@@ -91,7 +91,7 @@ impl DecisionProcedure for Z3ProcessSolver {
             "sat" => {
                 let remaining = timeout
                     .checked_sub(started.elapsed())
-                    .ok_or_else(|| SolverError::Timeout(timeout.as_millis() as u64))?;
+                    .ok_or(SolverError::Timeout(timeout.as_millis() as u64))?;
                 if remaining.is_zero() {
                     return Err(SolverError::Timeout(timeout.as_millis() as u64));
                 }
