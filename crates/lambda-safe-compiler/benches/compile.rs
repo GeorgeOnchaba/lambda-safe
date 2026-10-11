@@ -46,4 +46,3 @@ fn compile_benchmark(criterion: &mut Criterion) {
 
 criterion_group!(benches, compile_benchmark);
 criterion_main!(benches);
-

@@ -14,4 +14,3 @@ pub use finite::{FiniteModelConfig, FiniteModelSolver};
 pub use query::{DecisionProcedure, DecisionResult, SolverError, SolverQuery};
 pub use smtlib::emit_smt2;
 pub use z3::Z3ProcessSolver;
-

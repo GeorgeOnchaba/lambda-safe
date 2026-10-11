@@ -122,4 +122,3 @@ mod tests {
         assert!(deserialize_json_strict::<BTreeMap<String, Value>>(source).is_err());
     }
 }
-

@@ -404,4 +404,3 @@ mod tests {
         assert_eq!(result, DecisionResult::Unsat);
     }
 }
-

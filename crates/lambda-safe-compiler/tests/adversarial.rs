@@ -258,4 +258,3 @@ fn zero_compilation_budget_never_emits_artifacts() {
     assert_eq!(result.status, CompileStatus::Indeterminate);
     assert!(result.artifacts.is_none());
 }
-

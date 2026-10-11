@@ -331,4 +331,3 @@ mod tests {
         assert!(truncated.is_char_boundary(truncated.len()));
     }
 }
-

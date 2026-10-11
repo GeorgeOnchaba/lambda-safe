@@ -42,4 +42,3 @@ fn strategy(id: &str, properties: &[&str]) -> StrategyDefinition {
         properties: properties.iter().map(|value| (*value).to_owned()).collect(),
     }
 }
-

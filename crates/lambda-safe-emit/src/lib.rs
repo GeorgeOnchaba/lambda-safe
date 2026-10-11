@@ -620,4 +620,3 @@ mod tests {
         let _phantom: Option<CheckedContract> = None;
     }
 }
-

@@ -506,4 +506,3 @@ contract api version "1" {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }
-

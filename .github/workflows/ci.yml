@@ -57,4 +57,3 @@ jobs:
           toolchain: 1.85.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace
-

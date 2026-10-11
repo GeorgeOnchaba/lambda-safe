@@ -366,4 +366,3 @@ const fn schema(kind: SchemaKind) -> &'static str {
         }
     }
 }
-

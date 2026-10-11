@@ -16,4 +16,3 @@ pub const THEORY_ID: &str = "QF_LIA";
 pub const CANONICALIZATION_ID: &str = "RFC8785-JCS";
 /// Digest algorithm used by v0.1 artifacts.
 pub const DIGEST_ALGORITHM: &str = "SHA-256";
-
