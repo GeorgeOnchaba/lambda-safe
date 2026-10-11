@@ -475,10 +475,13 @@ enum SemanticType {
     Integer { base: Option<String> },
 }
 
+type BindingMap = BTreeMap<String, Binding>;
+type SymbolMap = BTreeMap<String, CoreSymbol>;
+
 fn build_environment(
     document: &ContractDocument,
     units: &BTreeMap<String, ResolvedUnit>,
-) -> Result<(BTreeMap<String, Binding>, BTreeMap<String, CoreSymbol>), CheckFailure> {
+) -> Result<(BindingMap, SymbolMap), CheckFailure> {
     let mut environment = BTreeMap::new();
     let mut symbols = BTreeMap::new();
 
