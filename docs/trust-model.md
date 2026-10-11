@@ -57,7 +57,7 @@ freshness and enforcement are integration responsibilities.
 | Unsatisfiable transition appears preserving | Separate branch-feasibility query |
 | Soft metadata changes certificate | Hard-only normalized projection |
 | Manifest/certificate substitution | Cross-digests and offline verification |
-| Certificate forgery | Optional Ed25519 signature |
+| Certificate forgery | Digests detect internal mutation; an optional Ed25519 signature is checked against its embedded public key but does not establish issuer identity |
 | Parser/resource exhaustion | Source, declaration, expression, body, timeout and finite-state limits |
 | Duplicate JSON keys create divergent interpretations | Recursive duplicate-member rejection before typed lowering |
 | Cross-request leakage | Stateless compiler and immutable shared state |
@@ -79,4 +79,6 @@ It does not certify secrets and should not receive them in contract metadata.
 - Keep signing keys in KMS/HSM-backed storage; a mounted key file is a portable
   reference path, not the preferred enterprise custody mechanism.
 - Archive source, hard artifacts, compiler image digest and solver identity.
-- Verify artifacts again at the admission boundary.
+- Use an external trust-aware verifier at the admission boundary. Core's
+  offline `valid` result is integrity and binding only; it has no issuer trust
+  roots, authorization policy or revocation data.

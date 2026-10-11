@@ -28,8 +28,8 @@ custody are operational properties layered around that rule.
 | Unit confusion | Canonical integer scaling and compatible-unit checks |
 | Artifact substitution | Manifest/certificate SHA-256 binding and reconstructed hard-input digest |
 | Partial or accidental artifact replacement | Immutable CLI output path and staged directory publication |
-| Signature confusion | Ed25519 algorithm id and public key embedded in signature record |
-| Resource exhaustion | Source, token, nesting, node, obligation, concurrency, per-solver, whole-compilation and finite-state limits |
+| Signature confusion | Ed25519 verifies the digest against the embedded key; Core does not bind that key to an issuer identity |
+| Resource exhaustion | Source, token, nesting, node, obligation, concurrency, per-solver, whole-compilation, finite-state and 8 MiB-per-stream Z3 output limits |
 | Ambiguous JSON member shadowing | Duplicate and unknown object members are rejected recursively |
 | Command injection | Z3 path is an executable argument; source is sent through stdin |
 | Nondeterminism | Sorted hard projection and JCS serialization |
@@ -43,10 +43,12 @@ access and networking.
 
 ## Cryptography
 
-SHA-256 binds canonical data. Optional Ed25519 authenticates the certificate
-digest; it does not improve logical assurance. Verification recomputes both the
-manifest digest and certificate body digest. Key generation, rotation,
-revocation and identity binding are deliberately deployment concerns.
+SHA-256 binds canonical data. Optional Ed25519 verifies that the private key
+corresponding to the public key embedded in the artifact signed the certificate
+digest; this does not identify or authorize the producer and does not improve
+logical assurance. Offline verification recomputes the manifest digest and
+certificate body digest. Key generation, external trust roots, authorization,
+rotation and revocation are deployment concerns.
 
 ## Residual risks
 

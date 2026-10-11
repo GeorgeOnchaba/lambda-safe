@@ -85,7 +85,7 @@ and Kubernetes resources, and a research traceability matrix.
 ## Prerequisites
 
 - Rust 1.85 or newer with the 2024 edition.
-- Z3 available as `z3` for the default production solver path.
+- Z3 available as `z3` for the standard unbounded solver path.
 - Docker or another OCI runtime for the container workflow.
 
 The finite solver is exact only when every referenced integer has explicit
@@ -213,8 +213,10 @@ lambda-safe --solver z3 compile \
   --signing-key-file /secure/path/lambda-safe.key
 ```
 
-Signing authenticates the certificate digest. It does not strengthen or alter
-the logical result. The service reads the same key through
+Signing creates an Ed25519 signature over the certificate digest. Offline
+verification checks it against the public key embedded in the artifact; this
+does not establish producer identity or strengthen the logical result. The
+service reads the same key through
 `LAMBDA_SAFE_SIGNING_KEY_FILE`. Production key generation and custody should use
 an approved KMS or HSM workflow.
 

@@ -126,6 +126,12 @@ A degradation declaration has exactly two ordered relations named `primary`
 and `fallback`. A reconciliation declaration has one `merge` relation and names
 a built-in versioned strategy.
 
+The strategy name, registry entry and digest identify a declared profile; they
+do not discharge that strategy's algebraic laws or prove that the supplied
+relation implements a named CRDT. The certificate covers the user-declared
+relation and its checked transition obligations only. Strategy-specific proof
+obligations require a separately versioned language/profile.
+
 Every transition must list every hard invariant in the contract. Omitting an
 invariant is rejected rather than interpreted as permission to violate it. For
 every branch `R` and hard invariant `I`, the compiler checks:
@@ -143,7 +149,8 @@ implementation conforms to that relation.
 
 `token lease;` mints one compile-time linear capability. Exactly one
 `consume lease;` must occur in the contract. Missing, unknown or duplicate
-consumption fails with `LSC-L001`.
+consumption fails with `LSC-L001`. This static count does not enforce runtime
+uniqueness, persistence, consensus or double-spend prevention.
 
 ## Metadata
 

@@ -9,6 +9,8 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+lambda-safe-check = { path = "../crates/lambda-safe-check" }
 lambda-safe-compiler = { path = "../crates/lambda-safe-compiler" }
 lambda-safe-emit = { path = "../crates/lambda-safe-emit" }
 lambda-safe-model = { path = "../crates/lambda-safe-model" }
@@ -35,6 +37,13 @@ members = ["."]
 [[bin]]
 name = "artifact_verify"
 path = "fuzz_targets/artifact_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "solver_boundary"
+path = "fuzz_targets/solver_boundary.rs"
 test = false
 doc = false
 bench = false

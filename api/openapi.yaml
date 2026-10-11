@@ -264,10 +264,13 @@ components:
     Verification:
       type: object
       additionalProperties: false
-      required: [valid, checks, diagnostics]
+      required: [valid, verification_scope, checks, diagnostics]
       properties:
         valid:
           type: boolean
+        verification_scope:
+          type: string
+          const: integrity_and_binding_only
         checks:
           type: object
           additionalProperties:

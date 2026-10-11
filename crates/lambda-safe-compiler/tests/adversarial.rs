@@ -1,5 +1,9 @@
+use ed25519_dalek::SigningKey;
 use lambda_safe_compiler::{Compiler, CompilerConfig, SourceFormat};
-use lambda_safe_model::{CompileStatus, Counterexample, SolverIdentity};
+use lambda_safe_model::{
+    CertificateVerificationScope, CompileStatus, Counterexample, SolverIdentity,
+    VerificationOutcome,
+};
 use lambda_safe_solver::{DecisionProcedure, DecisionResult, SolverError, SolverQuery};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -124,6 +128,82 @@ fn certificate_tampering_is_detected() {
 }
 
 #[test]
+fn tampered_signature_is_rejected() {
+    let compiler = Compiler::new(
+        Arc::new(lambda_safe_solver::FiniteModelSolver::default()),
+        CompilerConfig {
+            signing_key: Some(SigningKey::from_bytes(&[11_u8; 32])),
+            ..CompilerConfig::default()
+        },
+    );
+    let mut artifacts = compiler
+        .compile(valid_source(), SourceFormat::Lambda)
+        .artifacts
+        .expect("contract should certify");
+    artifacts
+        .certificate
+        .signature
+        .as_mut()
+        .expect("signature should be configured")
+        .signature = "tampered".to_owned();
+
+    let result = compiler.verify(&artifacts.manifest, &artifacts.certificate);
+    assert!(!result.valid);
+    assert_eq!(result.checks.get("signature"), Some(&false));
+    assert_eq!(
+        result.verification_scope,
+        CertificateVerificationScope::IntegrityAndBindingOnly
+    );
+}
+
+#[test]
+fn embedded_signature_key_is_not_a_trusted_producer_identity() {
+    let producer = Compiler::new(
+        Arc::new(lambda_safe_solver::FiniteModelSolver::default()),
+        CompilerConfig {
+            signing_key: Some(SigningKey::from_bytes(&[19_u8; 32])),
+            ..CompilerConfig::default()
+        },
+    );
+    let artifacts = producer
+        .compile(valid_source(), SourceFormat::Lambda)
+        .artifacts
+        .expect("contract should certify");
+    let verifier = Compiler::new(
+        Arc::new(lambda_safe_solver::FiniteModelSolver::default()),
+        CompilerConfig::default(),
+    );
+
+    let result = verifier.verify(&artifacts.manifest, &artifacts.certificate);
+    assert!(result.valid);
+    assert_eq!(result.checks.get("signature"), Some(&true));
+    assert_eq!(
+        result.verification_scope,
+        CertificateVerificationScope::IntegrityAndBindingOnly
+    );
+}
+
+#[test]
+fn unsupported_certificate_version_is_rejected_even_with_recomputed_digest() {
+    let compiler = Compiler::new(
+        Arc::new(lambda_safe_solver::FiniteModelSolver::default()),
+        CompilerConfig::default(),
+    );
+    let mut artifacts = compiler
+        .compile(valid_source(), SourceFormat::Lambda)
+        .artifacts
+        .expect("contract should certify");
+    artifacts.certificate.body.schema_version = "99.0".to_owned();
+    artifacts.certificate.certificate_digest =
+        lambda_safe_emit::digest_value(&artifacts.certificate.body)
+            .expect("modified certificate body should remain serializable");
+
+    let result = compiler.verify(&artifacts.manifest, &artifacts.certificate);
+    assert!(!result.valid);
+    assert_eq!(result.checks.get("format_profile"), Some(&false));
+}
+
+#[test]
 fn rewritten_hard_input_digest_is_detected_without_a_signature() {
     let compiler = Compiler::new(
         Arc::new(lambda_safe_solver::FiniteModelSolver::default()),
@@ -242,6 +322,67 @@ fn whole_compilation_deadline_is_fail_closed() {
     assert_eq!(result.status, CompileStatus::Indeterminate);
     assert!(result.artifacts.is_none());
     assert!(started.elapsed() < Duration::from_millis(250));
+}
+
+#[derive(Debug)]
+struct TransitionDeadlineSolver;
+
+impl DecisionProcedure for TransitionDeadlineSolver {
+    fn identity(&self) -> SolverIdentity {
+        SolverIdentity {
+            name: "transition-deadline-test-double".to_owned(),
+            version: "1".to_owned(),
+            theory: "QF_LIA".to_owned(),
+            options: BTreeMap::new(),
+        }
+    }
+
+    fn solve(&self, query: &SolverQuery, timeout: Duration) -> Result<DecisionResult, SolverError> {
+        if query.id == "context_feasibility" {
+            return Ok(DecisionResult::Sat(Counterexample {
+                assignments: BTreeMap::new(),
+                raw_model: None,
+            }));
+        }
+        if query.id.starts_with("invariant::") {
+            return Ok(DecisionResult::Unsat);
+        }
+        if query.id.starts_with("transition::") {
+            return if timeout < Duration::from_secs(1) {
+                Err(SolverError::Timeout(timeout.as_millis() as u64))
+            } else {
+                Ok(DecisionResult::Sat(Counterexample {
+                    assignments: BTreeMap::new(),
+                    raw_model: None,
+                }))
+            };
+        }
+        Err(SolverError::Protocol(format!(
+            "unexpected query `{}` in deadline regression",
+            query.id
+        )))
+    }
+}
+
+#[test]
+fn transition_feasibility_receives_whole_job_deadline() {
+    let config = CompilerConfig {
+        solver_timeout: Duration::from_secs(5),
+        max_compile_time: Duration::from_millis(100),
+        ..CompilerConfig::default()
+    };
+    let compiler = Compiler::new(Arc::new(TransitionDeadlineSolver), config);
+    let result = compiler.compile(
+        include_str!("../../../examples/valid/capacity.json"),
+        SourceFormat::Json,
+    );
+
+    assert_eq!(result.status, CompileStatus::Indeterminate);
+    assert!(result.artifacts.is_none());
+    assert!(result.verification.iter().any(|record| {
+        record.obligation_kind == "transition_feasibility"
+            && record.outcome == VerificationOutcome::Indeterminate
+    }));
 }
 
 #[test]

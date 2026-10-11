@@ -1,5 +1,5 @@
 use crate::query::{DecisionProcedure, DecisionResult, SolverError, SolverQuery};
-use lambda_safe_check::CoreType;
+use lambda_safe_check::{CoreSymbol, CoreType};
 use lambda_safe_model::{
     BinaryOperator, Counterexample, Expr, ExprKind, PrimitiveValue, SolverIdentity, UnaryOperator,
 };
@@ -103,7 +103,7 @@ impl DecisionProcedure for FiniteModelSolver {
         )?;
         Ok(match model {
             Some(assignments) => DecisionResult::Sat(Counterexample {
-                assignments,
+                assignments: counterexample_assignments(&assignments, &query.symbols),
                 raw_model: None,
             }),
             None => DecisionResult::Unsat,
@@ -113,8 +113,36 @@ impl DecisionProcedure for FiniteModelSolver {
 
 #[derive(Clone, Debug)]
 struct Variable {
-    key: String,
+    key: VariableKey,
     domain: Vec<PrimitiveValue>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct VariableKey {
+    name: String,
+    state: VariableState,
+}
+
+impl VariableKey {
+    fn present(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            state: VariableState::Present,
+        }
+    }
+
+    fn post(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            state: VariableState::Post,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum VariableState {
+    Present,
+    Post,
 }
 
 fn build_variables(
@@ -136,12 +164,9 @@ fn build_variables(
         .collect::<BTreeMap<_, _>>();
     let mut variables = Vec::new();
     for reference in references {
-        let (base_name, is_next) = reference
-            .strip_suffix("__next")
-            .map_or((reference.as_str(), false), |base| (base, true));
         let symbol = symbols
-            .get(base_name)
-            .ok_or_else(|| format!("query references undeclared symbol `{base_name}`"))?;
+            .get(reference.name.as_str())
+            .ok_or_else(|| format!("query references undeclared symbol `{}`", reference.name))?;
         let domain = match &symbol.value_type {
             CoreType::Boolean => vec![
                 PrimitiveValue::Boolean(false),
@@ -150,28 +175,25 @@ fn build_variables(
             CoreType::Integer { .. } => {
                 let (Some(minimum), Some(maximum)) = (symbol.minimum, symbol.maximum) else {
                     return Err(format!(
-                        "finite solver requires lower and upper bounds for integer symbol `{base_name}`"
+                        "finite solver requires lower and upper bounds for integer symbol `{}`",
+                        reference.name
                     ));
                 };
                 if minimum > maximum {
-                    return Err(format!("invalid bounds for `{base_name}`"));
+                    return Err(format!("invalid bounds for `{}`", reference.name));
                 }
                 let size = i128::from(maximum) - i128::from(minimum) + 1;
                 if size > config.max_values_per_integer as i128 {
                     return Err(format!(
-                        "domain for `{base_name}` has {size} values; per-variable limit is {}",
-                        config.max_values_per_integer
+                        "domain for `{}` has {size} values; per-variable limit is {}",
+                        reference.name, config.max_values_per_integer
                     ));
                 }
                 (minimum..=maximum).map(PrimitiveValue::Integer).collect()
             }
         };
         variables.push(Variable {
-            key: if is_next {
-                format!("{base_name}__next")
-            } else {
-                base_name.to_owned()
-            },
+            key: reference,
             domain,
         });
     }
@@ -179,7 +201,7 @@ fn build_variables(
     Ok(variables)
 }
 
-fn referenced_variables(assertions: &[Expr]) -> BTreeSet<String> {
+fn referenced_variables(assertions: &[Expr]) -> BTreeSet<VariableKey> {
     let mut names = BTreeSet::new();
     for assertion in assertions {
         collect_references(assertion, &mut names);
@@ -187,13 +209,13 @@ fn referenced_variables(assertions: &[Expr]) -> BTreeSet<String> {
     names
 }
 
-fn collect_references(expression: &Expr, names: &mut BTreeSet<String>) {
+fn collect_references(expression: &Expr, names: &mut BTreeSet<VariableKey>) {
     match &expression.kind {
         ExprKind::Variable { name } => {
-            let _ = names.insert(name.clone());
+            let _ = names.insert(VariableKey::present(name));
         }
         ExprKind::NextVariable { name } => {
-            let _ = names.insert(format!("{name}__next"));
+            let _ = names.insert(VariableKey::post(name));
         }
         ExprKind::Unary { expression, .. } => collect_references(expression, names),
         ExprKind::Binary { left, right, .. } => {
@@ -207,11 +229,11 @@ fn collect_references(expression: &Expr, names: &mut BTreeSet<String>) {
 fn search(
     index: usize,
     variables: &[Variable],
-    assignment: &mut BTreeMap<String, PrimitiveValue>,
+    assignment: &mut BTreeMap<VariableKey, PrimitiveValue>,
     assertions: &[Expr],
     deadline: Instant,
     timeout: Duration,
-) -> Result<Option<BTreeMap<String, PrimitiveValue>>, SolverError> {
+) -> Result<Option<BTreeMap<VariableKey, PrimitiveValue>>, SolverError> {
     if Instant::now() >= deadline {
         return Err(SolverError::Timeout(timeout.as_millis() as u64));
     }
@@ -249,22 +271,21 @@ fn search(
 
 fn evaluate(
     expression: &Expr,
-    assignment: &BTreeMap<String, PrimitiveValue>,
+    assignment: &BTreeMap<VariableKey, PrimitiveValue>,
 ) -> Result<PrimitiveValue, SolverError> {
     match &expression.kind {
         ExprKind::Integer { value } => Ok(PrimitiveValue::Integer(*value)),
         ExprKind::Boolean { value } => Ok(PrimitiveValue::Boolean(*value)),
         ExprKind::Variable { name } => assignment
-            .get(name)
+            .get(&VariableKey::present(name))
             .cloned()
             .ok_or_else(|| SolverError::Evaluation(format!("missing assignment for `{name}`"))),
-        ExprKind::NextVariable { name } => {
-            let key = format!("{name}__next");
-            assignment
-                .get(&key)
-                .cloned()
-                .ok_or_else(|| SolverError::Evaluation(format!("missing assignment for `{key}`")))
-        }
+        ExprKind::NextVariable { name } => assignment
+            .get(&VariableKey::post(name))
+            .cloned()
+            .ok_or_else(|| {
+                SolverError::Evaluation(format!("missing post-state assignment for `{name}`"))
+            }),
         ExprKind::Unary {
             operator,
             expression,
@@ -290,6 +311,32 @@ fn evaluate(
             evaluate_binary(*operator, left, right)
         }
     }
+}
+
+fn counterexample_assignments(
+    assignment: &BTreeMap<VariableKey, PrimitiveValue>,
+    symbols: &[CoreSymbol],
+) -> BTreeMap<String, PrimitiveValue> {
+    let present_names = symbols
+        .iter()
+        .map(|symbol| symbol.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut output = BTreeMap::new();
+    for (key, value) in assignment {
+        let name = match key.state {
+            VariableState::Present => key.name.clone(),
+            VariableState::Post => {
+                let legacy_name = format!("{}__next", key.name);
+                if !present_names.contains(legacy_name.as_str()) {
+                    legacy_name
+                } else {
+                    format!("{}@post", key.name)
+                }
+            }
+        };
+        let _ = output.insert(name, value.clone());
+    }
+    output
 }
 
 fn evaluate_binary(
@@ -402,5 +449,39 @@ mod tests {
             .solve(&query, Duration::from_secs(1))
             .expect("finite query should execute");
         assert_eq!(result, DecisionResult::Unsat);
+    }
+
+    #[test]
+    fn present_symbol_suffix_does_not_alias_another_symbols_post_state() {
+        let mut suffixed_symbol = int_symbol("x__next");
+        suffixed_symbol.minimum = Some(0);
+        suffixed_symbol.maximum = Some(1);
+        let mut base_symbol = int_symbol("x");
+        base_symbol.minimum = Some(0);
+        base_symbol.maximum = Some(1);
+        let query = SolverQuery {
+            id: "distinct_present_and_post_state".to_owned(),
+            symbols: vec![base_symbol, suffixed_symbol],
+            assertions: vec![binary(
+                BinaryOperator::NotEqual,
+                Expr::variable("x__next"),
+                Expr::next_variable("x"),
+            )],
+        };
+
+        let result = FiniteModelSolver::default()
+            .solve(&query, Duration::from_secs(1))
+            .expect("finite query should execute");
+        let DecisionResult::Sat(counterexample) = result else {
+            panic!("present and post-state variables must be independent");
+        };
+        assert_eq!(
+            counterexample.assignments.get("x__next"),
+            Some(&PrimitiveValue::Integer(1))
+        );
+        assert_eq!(
+            counterexample.assignments.get("x@post"),
+            Some(&PrimitiveValue::Integer(0))
+        );
     }
 }

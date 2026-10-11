@@ -18,6 +18,13 @@ jobs:
         with:
           toolchain: 1.85.0
           components: rustfmt, clippy
+      - name: Check tag matches package version
+        run: |
+          version="$(tr -d '\r\n' < VERSION)"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "error: release tag $GITHUB_REF_NAME does not match VERSION $version" >&2
+            exit 1
+          fi
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install --yes z3 zip
       - name: Verify
@@ -33,11 +40,11 @@ jobs:
       - name: Attest source archive
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: ../nigenje-lambda-safe-compiler-open-v0.1.0.zip
+          subject-path: ../nigenje-lambda-safe-compiler-open-${{ github.ref_name }}.zip
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            ../nigenje-lambda-safe-compiler-open-v0.1.0.zip
+            ../nigenje-lambda-safe-compiler-open-${{ github.ref_name }}.zip
             source-sha256.txt
             source.spdx.json
           fail_on_unmatched_files: true

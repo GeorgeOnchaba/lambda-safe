@@ -651,6 +651,7 @@ const fn transition_code(kind: lambda_safe_model::TransitionKind) -> &'static st
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lambda_safe_model::CertificateVerificationScope;
     use lambda_safe_solver::FiniteModelSolver;
 
     fn compiler() -> Compiler {
@@ -740,6 +741,12 @@ contract impossible version "1.0.0" {
             compiler
                 .verify(&artifacts.manifest, &artifacts.certificate)
                 .valid
+        );
+        assert_eq!(
+            compiler
+                .verify(&artifacts.manifest, &artifacts.certificate)
+                .verification_scope,
+            CertificateVerificationScope::IntegrityAndBindingOnly
         );
     }
 }
