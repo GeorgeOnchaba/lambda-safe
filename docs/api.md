@@ -97,7 +97,14 @@ Request envelopes and nested artifact maps reject duplicate JSON member names.
 ```
 
 The abbreviated values above show shape only; complete objects must conform to
-their schemas. Verification does not invoke the solver.
+their schemas. Verification does not invoke the solver. A response with
+`valid: true` and `verification_scope: "integrity_and_binding_only"` confirms
+the artifact's supported format, internal digests, cross-artifact bindings and
+any supplied signature. It does not prove the encoded claims or identify the
+producer, because v0.1 contains no solver proof and signatures carry their own
+un-pinned public key. This response MUST NOT be used by itself to authorize a
+deployment; compile the source with a trusted toolchain or use an independent
+proof-checking format.
 
 ## Status codes
 

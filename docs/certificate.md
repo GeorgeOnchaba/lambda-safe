@@ -64,6 +64,16 @@ but not the semantic certificate identity.
 
 ## Verification
 
+The verification response reports `verification_scope` as
+`integrity_and_binding_only`. Its `valid` field means that the supported
+format, internal digests, cross-artifact bindings and any supplied signature
+checks passed. An absent optional signature is permitted by the Core format.
+This result does not rerun solver obligations, prove the encoded claims, or
+establish who produced the artifact. When present, a signature is checked
+against the public key embedded in that same artifact; Core has no external
+trust store, issuer authorization or revocation check. Consumers must not use
+this result alone to authorize deployment.
+
 Offline verification recomputes and checks:
 
 1. hard-manifest digest;
@@ -77,9 +87,11 @@ Offline verification recomputes and checks:
 9. supported format, theory and deterministic structure;
 10. optional Ed25519 signature.
 
-All checks must pass. A valid digest proves integrity relative to the supplied
-bytes; it does not independently rerun SMT obligations. Recompilation is the
-stronger verification path when source and pinned tools are available.
+All required checks must pass. A valid digest proves integrity relative to the
+supplied bytes; it does not independently rerun SMT obligations. Recompilation
+with a trusted, pinned toolchain is a stronger verification path when source
+and tools are available. Issuer trust and deployment compatibility require an
+external verifier with tenant-scoped trust and policy data.
 
 ## Compatibility
 

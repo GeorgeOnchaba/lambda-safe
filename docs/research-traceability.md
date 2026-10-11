@@ -4,13 +4,19 @@ The implementation is the experimental artifact for the proposed MSc study
 *Design, Implementation and Evaluation of a λ-Safe Compiler for Decidable
 Invariant Certification in Distributed Control Planes*.
 
+The safety claim boundary is defined in
+[the Core safety assurance specification](assurance/safety-assurance-specification.md).
+The comparison against the Enterprise v1.0 implementation baseline, including
+executed checks and unclosed gates, is recorded in
+[the baseline audit](assurance/enterprise-v1-baseline-audit.md).
+
 | Research concern | Normative mechanism | Implementation | Evidence |
 |---|---|---|---|
 | Decidable hard boundary | QF-LIA and authority eligibility | `lambda-safe-check` | fragment and authority tests |
 | Non-vacuous validity | feasibility before negated validity | `lambda-safe-compiler` | infeasible/counterexample tests |
 | Unit-safe control variables | canonical integer unit scales | checker normalizer | unit mismatch tests |
 | Adaptive safety | feasible/preserving transition relations | compiler transition discharge | transition adversarial tests |
-| Reconciliation discipline | versioned strategy registry | checker registry | registry digest and strategy tests |
+| Reconciliation discipline | checked user-declared relation; strategy label is not a proof of its algebraic laws | checker registry and transition obligations | registry digest, strategy tests and transition obligations |
 | Linear capabilities | exact-once token context | checker token pass | linear-token negative tests |
 | Reproducibility | JCS hard manifest and digests | `lambda-safe-emit` | deterministic artifact tests |
 | Tool usability | library, CLI and HTTP interfaces | compiler/CLI/service crates | integration and route tests |

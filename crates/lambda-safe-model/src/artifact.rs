@@ -287,11 +287,22 @@ impl CompileResult {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CertificateVerification {
-    /// Whether all required digest and signature checks passed.
+    /// Whether all required format, digest, binding and supplied-signature checks passed.
     pub valid: bool,
+    /// Scope of the check. This format does not contain solver proofs and does
+    /// not establish that the encoded claims are true.
+    pub verification_scope: CertificateVerificationScope,
     /// Individual checks.
     pub checks: BTreeMap<String, bool>,
     /// Diagnostics for failed checks.
     #[serde(default)]
     pub diagnostics: Vec<Diagnostic>,
+}
+
+/// What offline verification of a v0.1 certificate establishes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CertificateVerificationScope {
+    /// Internal format, digest and artifact bindings only; no semantic proof.
+    IntegrityAndBindingOnly,
 }

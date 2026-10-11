@@ -249,12 +249,14 @@ dependencies = [
 name = "lambda-safe-fuzz"
 version = "0.0.0"
 dependencies = [
+ "lambda-safe-check",
  "lambda-safe-compiler",
  "lambda-safe-emit",
  "lambda-safe-model",
  "lambda-safe-solver",
  "lambda-safe-syntax",
  "libfuzzer-sys",
+ "serde",
 ]
 
 [[package]]

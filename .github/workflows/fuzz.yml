@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [contract_text, contract_json, artifact_verify]
+        target: [contract_text, contract_json, artifact_verify, solver_boundary]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly

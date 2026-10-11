@@ -8,8 +8,8 @@ use lambda_safe_check::{
 };
 use lambda_safe_model::{
     AuthorityClass, CANONICALIZATION_ID, CERTIFICATE_SCHEMA_VERSION, COMPILER_VERSION,
-    CertificateVerification, CompilationArtifacts, DIGEST_ALGORITHM, Diagnostic, Expr,
-    HardManifest, LANGUAGE_VERSION, LambdaCertificate, LambdaCertificateBody,
+    CertificateVerification, CertificateVerificationScope, CompilationArtifacts, DIGEST_ALGORITHM,
+    Diagnostic, Expr, HardManifest, LANGUAGE_VERSION, LambdaCertificate, LambdaCertificateBody,
     MANIFEST_SCHEMA_VERSION, ManifestClaim, ManifestDeclaration, ManifestTransition,
     SignatureEnvelope, SolverIdentity, THEORY_ID, TransitionKind, codes,
 };
@@ -279,6 +279,7 @@ pub fn verify_artifacts(
     }
     CertificateVerification {
         valid: checks.values().all(|passed| *passed),
+        verification_scope: CertificateVerificationScope::IntegrityAndBindingOnly,
         checks,
         diagnostics,
     }
