@@ -23,7 +23,9 @@ impl DecisionProcedure for UnknownSolver {
         _query: &SolverQuery,
         _timeout: Duration,
     ) -> Result<DecisionResult, SolverError> {
-        Ok(DecisionResult::Unknown("deliberate test outcome".to_owned()))
+        Ok(DecisionResult::Unknown(
+            "deliberate test outcome".to_owned(),
+        ))
     }
 }
 
@@ -71,10 +73,7 @@ fn solver_unknown_never_emits_certificate() {
 
 #[test]
 fn unsupported_solver_identity_never_reaches_discharge() {
-    let compiler = Compiler::new(
-        Arc::new(InvalidIdentitySolver),
-        CompilerConfig::default(),
-    );
+    let compiler = Compiler::new(Arc::new(InvalidIdentitySolver), CompilerConfig::default());
     let result = compiler.compile(valid_source(), SourceFormat::Lambda);
     assert_eq!(result.status, CompileStatus::Indeterminate);
     assert!(result.verification.is_empty());
@@ -190,7 +189,12 @@ fn diagnostics_never_smuggle_a_counterexample_into_artifacts() {
         CompilerConfig::default(),
     );
     let result = compiler.compile(source, SourceFormat::Lambda);
-    assert!(result.verification.iter().any(|record| record.counterexample.is_some()));
+    assert!(
+        result
+            .verification
+            .iter()
+            .any(|record| record.counterexample.is_some())
+    );
     assert!(result.artifacts.is_none());
 }
 

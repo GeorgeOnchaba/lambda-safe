@@ -46,7 +46,7 @@ missing_debug_implementations = "warn"
 unused_must_use = "deny"
 
 [workspace.lints.clippy]
-all = "warn"
+all = { level = "warn", priority = -1 }
 dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
@@ -59,3 +59,4 @@ strip = "symbols"
 
 [profile.dev]
 debug = 1
+

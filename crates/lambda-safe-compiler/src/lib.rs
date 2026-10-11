@@ -4,9 +4,9 @@ use ed25519_dalek::SigningKey;
 use lambda_safe_check::{CheckConfig, CheckedContract, check_contract};
 use lambda_safe_emit::{build_artifacts, verify_artifacts};
 use lambda_safe_model::{
-    CERTIFICATE_SCHEMA_VERSION, COMPILER_VERSION, CompileResult, CompileStatus,
-    CertificateVerification, Diagnostic, Expr, ExprKind, HardManifest, LANGUAGE_VERSION,
-    LambdaCertificate, MANIFEST_SCHEMA_VERSION, VerificationOutcome, VerificationRecord, codes,
+    CERTIFICATE_SCHEMA_VERSION, COMPILER_VERSION, CertificateVerification, CompileResult,
+    CompileStatus, Diagnostic, Expr, ExprKind, HardManifest, LANGUAGE_VERSION, LambdaCertificate,
+    MANIFEST_SCHEMA_VERSION, VerificationOutcome, VerificationRecord, codes,
 };
 use lambda_safe_solver::{DecisionProcedure, DecisionResult, SolverError, SolverQuery};
 pub use lambda_safe_syntax::SourceFormat;
@@ -45,7 +45,10 @@ impl fmt::Debug for CompilerConfig {
             .field("max_compile_time", &self.max_compile_time)
             .field("checks", &self.checks)
             .field("max_solver_obligations", &self.max_solver_obligations)
-            .field("signing_key", &self.signing_key.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "signing_key",
+                &self.signing_key.as_ref().map(|_| "[REDACTED]"),
+            )
             .finish()
     }
 }
@@ -184,7 +187,10 @@ impl Compiler {
         let Some(deadline) = started.checked_add(self.config.max_compile_time) else {
             return CompileResult::failed(
                 CompileStatus::Indeterminate,
-                vec![Diagnostic::error(codes::RESOURCE_LIMIT, "configured compilation deadline overflowed the platform clock")],
+                vec![Diagnostic::error(
+                    codes::RESOURCE_LIMIT,
+                    "configured compilation deadline overflowed the platform clock",
+                )],
             );
         };
         if let Some(diagnostic) = self.source_limit_diagnostic(source) {
@@ -206,10 +212,13 @@ impl Compiler {
             }
         };
         if Instant::now() >= deadline {
-            return resource_indeterminate(&checked, format!(
-                "compilation exceeded the configured wall-clock budget of {} ms before solver discharge",
-                duration_ms_u64(self.config.max_compile_time),
-            ));
+            return resource_indeterminate(
+                &checked,
+                format!(
+                    "compilation exceeded the configured wall-clock budget of {} ms before solver discharge",
+                    duration_ms_u64(self.config.max_compile_time),
+                ),
+            );
         }
         self.discharge(&checked, deadline)
     }
@@ -382,7 +391,7 @@ impl Compiler {
                     symbols: symbols.clone(),
                     assertions: branch_context.clone(),
                 };
-                match self.solve(&feasibility_query) {
+                match self.solve(&feasibility_query, deadline) {
                     Ok(DecisionResult::Sat(counterexample)) => records.push(VerificationRecord {
                         obligation_id: feasibility_id,
                         obligation_kind: "transition_feasibility".to_owned(),
@@ -509,11 +518,7 @@ impl Compiler {
             };
         }
 
-        match build_artifacts(
-            checked,
-            solver_identity,
-            self.config.signing_key.as_ref(),
-        ) {
+        match build_artifacts(checked, solver_identity, self.config.signing_key.as_ref()) {
             Ok(artifacts) => CompileResult {
                 status: CompileStatus::StaticallyCertified,
                 diagnostics,
@@ -537,7 +542,9 @@ impl Compiler {
     fn solve(&self, query: &SolverQuery, deadline: Instant) -> Result<DecisionResult, SolverError> {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return Err(SolverError::Timeout(duration_ms_u64(self.config.max_compile_time)));
+            return Err(SolverError::Timeout(duration_ms_u64(
+                self.config.max_compile_time,
+            )));
         }
         let timeout = self.config.solver_timeout.min(remaining);
         self.solver.solve(query, timeout)

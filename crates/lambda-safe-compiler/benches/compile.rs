@@ -33,9 +33,13 @@ fn compile_benchmark(criterion: &mut Criterion) {
     for count in [1_usize, 25, 100, 500] {
         let source = generated_contract(count);
         group.throughput(Throughput::Elements(count as u64));
-        group.bench_with_input(BenchmarkId::from_parameter(count), &source, |bencher, source| {
-            bencher.iter(|| compiler.compile(black_box(source.as_str()), SourceFormat::Lambda));
-        });
+        group.bench_with_input(
+            BenchmarkId::from_parameter(count),
+            &source,
+            |bencher, source| {
+                bencher.iter(|| compiler.compile(black_box(source.as_str()), SourceFormat::Lambda));
+            },
+        );
     }
     group.finish();
 }

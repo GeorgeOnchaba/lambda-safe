@@ -14,4 +14,3 @@ proptest! {
         prop_assert!(parse_expression(&source).is_ok());
     }
 }
-

@@ -1,6 +1,4 @@
-use serde::de::{
-    self, Deserialize, DeserializeOwned, Deserializer, MapAccess, SeqAccess, Visitor,
-};
+use serde::de::{self, Deserialize, DeserializeOwned, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Number, Value};
 use std::fmt;
 

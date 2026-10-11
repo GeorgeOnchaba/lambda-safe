@@ -4,9 +4,9 @@ use crate::core::{
 };
 use crate::{StrategyDefinition, builtin_strategies};
 use lambda_safe_model::{
-    AuthorityClass, BinaryOperator, ClaimClass, CompileStatus, ContractDocument, Diagnostic,
-    ExcludedClaim, Expr, ExprKind, SourceSpan, TransitionKind, UnaryOperator, ValueType, codes,
-    CONTRACT_SCHEMA_VERSION, LANGUAGE_VERSION,
+    AuthorityClass, BinaryOperator, CONTRACT_SCHEMA_VERSION, ClaimClass, CompileStatus,
+    ContractDocument, Diagnostic, ExcludedClaim, Expr, ExprKind, LANGUAGE_VERSION, SourceSpan,
+    TransitionKind, UnaryOperator, ValueType, codes,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -28,7 +28,7 @@ impl Default for CheckConfig {
         Self {
             max_declarations: 4_096,
             max_expression_nodes: 16_384,
-            max_expression_depth: 256,
+            max_expression_depth: 64,
             max_unit_scale: 1_000_000_000_000,
         }
     }
@@ -98,9 +98,7 @@ pub fn check_contract(
                     ClaimClass::Trusted => {
                         "trusted-report claim is recorded but never elevated into hard output"
                     }
-                    ClaimClass::Soft => {
-                        "soft or predictive claim is outside hard certification"
-                    }
+                    ClaimClass::Soft => "soft or predictive claim is outside hard certification",
                     ClaimClass::Hard => unreachable!("hard claims are handled separately"),
                 }
                 .to_owned(),
@@ -392,9 +390,7 @@ fn resolve_unit(
             CompileStatus::Indeterminate,
             Diagnostic::error(
                 codes::RESOURCE_LIMIT,
-                format!(
-                    "unit alias chain exceeds the supported depth of {MAX_UNIT_CHAIN_DEPTH}"
-                ),
+                format!("unit alias chain exceeds the supported depth of {MAX_UNIT_CHAIN_DEPTH}"),
             )
             .at(*span)
             .for_subject(name),
@@ -413,12 +409,9 @@ fn resolve_unit(
         if *scale != 1 {
             return Err(failure(
                 CompileStatus::MalformedContract,
-                Diagnostic::error(
-                    codes::UNIT_MISMATCH,
-                    "a base unit must have scale one",
-                )
-                .at(*span)
-                .for_subject(name),
+                Diagnostic::error(codes::UNIT_MISMATCH, "a base unit must have scale one")
+                    .at(*span)
+                    .for_subject(name),
             ));
         }
         ResolvedUnit {
@@ -482,10 +475,13 @@ enum SemanticType {
     Integer { base: Option<String> },
 }
 
+type BindingMap = BTreeMap<String, Binding>;
+type SymbolMap = BTreeMap<String, CoreSymbol>;
+
 fn build_environment(
     document: &ContractDocument,
     units: &BTreeMap<String, ResolvedUnit>,
-) -> Result<(BTreeMap<String, Binding>, BTreeMap<String, CoreSymbol>), CheckFailure> {
+) -> Result<(BindingMap, SymbolMap), CheckFailure> {
     let mut environment = BTreeMap::new();
     let mut symbols = BTreeMap::new();
 
@@ -496,7 +492,10 @@ fn build_environment(
                 CompileStatus::MalformedContract,
                 Diagnostic::error(
                     codes::UNIT_MISMATCH,
-                    format!("constant `{}` uses unknown unit `{}`", constant.name, constant.unit),
+                    format!(
+                        "constant `{}` uses unknown unit `{}`",
+                        constant.name, constant.unit
+                    ),
                 )
                 .at(constant.span)
                 .for_subject(&constant.name),
@@ -507,7 +506,10 @@ fn build_environment(
                 CompileStatus::Unsupported,
                 Diagnostic::error(
                     codes::UNIT_MISMATCH,
-                    format!("constant `{}` overflows during unit normalization", constant.name),
+                    format!(
+                        "constant `{}` overflows during unit normalization",
+                        constant.name
+                    ),
                 )
                 .at(constant.span),
             )
@@ -545,9 +547,12 @@ fn build_environment(
                 if symbol.minimum.is_some() || symbol.maximum.is_some() {
                     return Err(failure(
                         CompileStatus::MalformedContract,
-                        Diagnostic::error(codes::TYPE_MISMATCH, "boolean inputs cannot have integer ranges")
-                            .at(symbol.span)
-                            .for_subject(&symbol.name),
+                        Diagnostic::error(
+                            codes::TYPE_MISMATCH,
+                            "boolean inputs cannot have integer ranges",
+                        )
+                        .at(symbol.span)
+                        .for_subject(&symbol.name),
                     ));
                 }
                 (SemanticType::Boolean, CoreType::Boolean, 1)
@@ -567,15 +572,17 @@ fn build_environment(
                 if matches!((symbol.minimum, symbol.maximum), (Some(min), Some(max)) if min > max) {
                     return Err(failure(
                         CompileStatus::MalformedContract,
-                        Diagnostic::error(codes::TYPE_MISMATCH, "input minimum is greater than maximum")
-                            .at(symbol.span)
-                            .for_subject(&symbol.name),
+                        Diagnostic::error(
+                            codes::TYPE_MISMATCH,
+                            "input minimum is greater than maximum",
+                        )
+                        .at(symbol.span)
+                        .for_subject(&symbol.name),
                     ));
                 }
                 (
                     SemanticType::Integer {
-                        base: (resolved.base != "unitless")
-                            .then(|| resolved.base.clone()),
+                        base: (resolved.base != "unitless").then(|| resolved.base.clone()),
                     },
                     CoreType::Integer {
                         base_unit: resolved.base.clone(),
@@ -615,8 +622,18 @@ fn check_unique_claim_ids(document: &ContractDocument) -> Result<(), CheckFailur
         .assumptions
         .iter()
         .map(|value| (&value.id, value.span))
-        .chain(document.invariants.iter().map(|value| (&value.id, value.span)))
-        .chain(document.transitions.iter().map(|value| (&value.id, value.span)))
+        .chain(
+            document
+                .invariants
+                .iter()
+                .map(|value| (&value.id, value.span)),
+        )
+        .chain(
+            document
+                .transitions
+                .iter()
+                .map(|value| (&value.id, value.span)),
+        )
     {
         if !ids.insert(id.clone()) {
             return Err(duplicate(id, span));
@@ -655,7 +672,9 @@ fn check_linear_tokens(document: &ContractDocument) -> Result<(), CheckFailure> 
                 CompileStatus::MalformedContract,
                 Diagnostic::error(
                     codes::LINEAR_TOKEN_ERROR,
-                    format!("linear token `{token}` must be consumed exactly once; observed {count}"),
+                    format!(
+                        "linear token `{token}` must be consumed exactly once; observed {count}"
+                    ),
                 )
                 .for_subject(token),
             ));
@@ -782,7 +801,10 @@ fn check_transitions(
                     transition.kind,
                     &transition.id,
                     branch.span,
-                    format!("branch `{}` does not constrain any post-state variable", branch.name),
+                    format!(
+                        "branch `{}` does not constrain any post-state variable",
+                        branch.name
+                    ),
                 ));
             }
             ensure_hard_authority(&branch.relation, environment, &transition.id)?;
@@ -960,9 +982,7 @@ fn lower_binding(
         },
         span,
     };
-    let normalized = if binding.nominal_scale == 1
-        || binding.value_type == SemanticType::Boolean
-    {
+    let normalized = if binding.nominal_scale == 1 || binding.value_type == SemanticType::Boolean {
         variable
     } else {
         Expr {
@@ -988,14 +1008,13 @@ fn lower_binary(
     span: SourceSpan,
 ) -> Result<TypedExpression, CheckFailure> {
     use BinaryOperator::{
-        Add, And, Equal, GreaterThan, GreaterThanOrEqual, Implies, LessThan,
-        LessThanOrEqual, Multiply, NotEqual, Or, Subtract,
+        Add, And, Equal, GreaterThan, GreaterThanOrEqual, Implies, LessThan, LessThanOrEqual,
+        Multiply, NotEqual, Or, Subtract,
     };
 
     let (value_type, constant_value) = match operator {
         And | Or | Implies => {
-            if left.value_type != SemanticType::Boolean
-                || right.value_type != SemanticType::Boolean
+            if left.value_type != SemanticType::Boolean || right.value_type != SemanticType::Boolean
             {
                 return Err(type_error(span, "boolean operands", "integer operand"));
             }
@@ -1115,9 +1134,12 @@ fn require_boolean(
     } else {
         Err(failure(
             CompileStatus::MalformedContract,
-            Diagnostic::error(codes::TYPE_MISMATCH, "claim expression must evaluate to boolean")
-                .at(span)
-                .for_subject(subject),
+            Diagnostic::error(
+                codes::TYPE_MISMATCH,
+                "claim expression must evaluate to boolean",
+            )
+            .at(span)
+            .for_subject(subject),
         ))
     }
 }
@@ -1165,7 +1187,11 @@ pub fn canonical_expression(expression: &Expr) -> String {
         ExprKind::Unary {
             operator,
             expression,
-        } => format!("({} {})", unary_name(*operator), canonical_expression(expression)),
+        } => format!(
+            "({} {})",
+            unary_name(*operator),
+            canonical_expression(expression)
+        ),
         ExprKind::Binary {
             operator,
             left,
@@ -1305,9 +1331,12 @@ fn type_error(span: SourceSpan, expected: &str, actual: &str) -> CheckFailure {
 fn duplicate(name: &str, span: SourceSpan) -> CheckFailure {
     failure(
         CompileStatus::MalformedContract,
-        Diagnostic::error(codes::DUPLICATE_NAME, format!("duplicate identifier `{name}`"))
-            .at(span)
-            .for_subject(name),
+        Diagnostic::error(
+            codes::DUPLICATE_NAME,
+            format!("duplicate identifier `{name}`"),
+        )
+        .at(span)
+        .for_subject(name),
     )
 }
 
@@ -1431,9 +1460,8 @@ mod tests {
         let expression = std::iter::repeat_n("allocated", 300)
             .collect::<Vec<_>>()
             .join(" + ");
-        contract.invariants[0].expression =
-            parse_expression(&format!("{expression} <= capacity"))
-                .expect("flat test expression should parse iteratively");
+        contract.invariants[0].expression = parse_expression(&format!("{expression} <= capacity"))
+            .expect("flat test expression should parse iteratively");
         let failure = check_contract(&contract, &CheckConfig::default())
             .expect_err("deep expression tree must fail before lowering");
         assert_eq!(failure.status, CompileStatus::Indeterminate);

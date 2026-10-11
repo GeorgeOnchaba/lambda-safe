@@ -50,10 +50,5 @@ pub trait DecisionProcedure: Send + Sync {
     fn identity(&self) -> SolverIdentity;
 
     /// Decides satisfiability under a hard deadline.
-    fn solve(
-        &self,
-        query: &SolverQuery,
-        timeout: Duration,
-    ) -> Result<DecisionResult, SolverError>;
+    fn solve(&self, query: &SolverQuery, timeout: Duration) -> Result<DecisionResult, SolverError>;
 }
-

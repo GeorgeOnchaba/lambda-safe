@@ -1,6 +1,6 @@
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, State};
-use axum::http::{header::CONTENT_TYPE, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header::CONTENT_TYPE};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -9,7 +9,7 @@ use lambda_safe_emit::signing_key_from_hex;
 use lambda_safe_model::{CompileStatus, HardManifest, LambdaCertificate};
 use lambda_safe_solver::{DecisionProcedure, FiniteModelSolver, Z3ProcessSolver};
 use lambda_safe_syntax::deserialize_json_strict;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::env;
 use std::fs;
 use std::net::SocketAddr;
@@ -250,10 +250,7 @@ async fn verify_handler(
     }
 }
 
-fn decode_json_request<T>(
-    headers: &HeaderMap,
-    body: &Bytes,
-) -> Result<T, axum::response::Response>
+fn decode_json_request<T>(headers: &HeaderMap, body: &Bytes) -> Result<T, axum::response::Response>
 where
     T: DeserializeOwned,
 {
@@ -326,9 +323,7 @@ fn internal_error(error: tokio::task::JoinError) -> axum::response::Response {
 fn http_status(status: CompileStatus) -> StatusCode {
     match status {
         CompileStatus::StaticallyCertified => StatusCode::OK,
-        CompileStatus::InvariantViolated | CompileStatus::InfeasibleContext => {
-            StatusCode::CONFLICT
-        }
+        CompileStatus::InvariantViolated | CompileStatus::InfeasibleContext => StatusCode::CONFLICT,
         CompileStatus::MalformedContract
         | CompileStatus::Unsupported
         | CompileStatus::AuthorityViolation => StatusCode::UNPROCESSABLE_ENTITY,
@@ -399,14 +394,8 @@ impl Settings {
             max_compile_ms: parse_value("LAMBDA_SAFE_MAX_COMPILE_MS", 30_000)?,
             max_source_bytes: parse_value("LAMBDA_SAFE_MAX_SOURCE_BYTES", 1_048_576)?,
             max_body_bytes: parse_value("LAMBDA_SAFE_MAX_BODY_BYTES", 1_200_000)?,
-            max_solver_obligations: parse_value(
-                "LAMBDA_SAFE_MAX_SOLVER_OBLIGATIONS",
-                2_048,
-            )?,
-            max_concurrent_requests: parse_value(
-                "LAMBDA_SAFE_MAX_CONCURRENT_REQUESTS",
-                32,
-            )?,
+            max_solver_obligations: parse_value("LAMBDA_SAFE_MAX_SOLVER_OBLIGATIONS", 2_048)?,
+            max_concurrent_requests: parse_value("LAMBDA_SAFE_MAX_CONCURRENT_REQUESTS", 32)?,
             signing_key_file: env::var_os("LAMBDA_SAFE_SIGNING_KEY_FILE").map(PathBuf::from),
         };
         if settings.max_concurrent_requests == 0 {
