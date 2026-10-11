@@ -28,7 +28,7 @@ impl Default for CheckConfig {
         Self {
             max_declarations: 4_096,
             max_expression_nodes: 16_384,
-            max_expression_depth: 256,
+            max_expression_depth: 64,
             max_unit_scale: 1_000_000_000_000,
         }
     }

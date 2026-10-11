@@ -648,7 +648,7 @@ impl Parser {
     }
 
     fn enter_nesting(&mut self, span: SourceSpan) -> Result<(), SyntaxError> {
-        const MAX_EXPRESSION_NESTING: usize = 256;
+        const MAX_EXPRESSION_NESTING: usize = 64;
         if self.nesting_depth >= MAX_EXPRESSION_NESTING {
             return Err(SyntaxError::new(
                 lambda_safe_model::Diagnostic::error(
