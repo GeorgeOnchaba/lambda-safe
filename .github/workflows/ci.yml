@@ -54,7 +54,9 @@ jobs:
         with:
           repository: GeorgeOnchaba/lambda-safe-fe
           ref: main
-          path: ../lambda-safe-fe
+          path: lambda-safe-fe
+      - name: Link UI checkout at Compose sibling path
+        run: ln -s "$GITHUB_WORKSPACE/lambda-safe-fe" ../lambda-safe-fe
       - name: Create ephemeral API secret
         run: |
           mkdir -p secrets
