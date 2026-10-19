@@ -49,3 +49,40 @@ jobs:
           docker compose config --quiet
       - name: Build compiler image
         run: docker build --pull --tag lambda-safe-compiler:ci .
+      - name: Checkout open-source UI
+        uses: actions/checkout@v4
+        with:
+          repository: GeorgeOnchaba/lambda-safe-fe
+          ref: main
+          path: ../lambda-safe-fe
+      - name: Create ephemeral API secret
+        run: |
+          mkdir -p secrets
+          openssl rand -hex 32 > secrets/lambda-safe-api-token
+          chmod 600 secrets/lambda-safe-api-token
+      - name: Start integrated Compose stack
+        run: docker compose up --build --detach
+      - name: Exercise UI-to-compiler integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() { docker compose logs --no-color || true; docker compose down --volumes --remove-orphans || true; }
+          trap cleanup EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/healthz >/dev/null; then break; fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:3000/healthz | jq -e '.service == "lambda-safe-ui"'
+          curl --fail --silent http://127.0.0.1:3000/readyz | jq -e '.service == "lambda-safe-service"'
+          curl --fail --silent http://127.0.0.1:3000/v1/info | jq -e 'type == "object"'
+          jq -n --rawfile source examples/valid/capacity.lambda '{source:{format:"lambda",content:$source}}' > /tmp/lambda-safe-valid.json
+          curl --fail --silent --show-error -H 'content-type: application/json' --data-binary @/tmp/lambda-safe-valid.json http://127.0.0.1:3000/v1/compile > /tmp/lambda-safe-valid-result.json
+          jq -e '.artifacts.manifest != null and .artifacts.certificate != null' /tmp/lambda-safe-valid-result.json
+          jq -n '{source:{format:"lambda",content:"this is not a valid lambda-safe contract"}}' > /tmp/lambda-safe-invalid.json
+          status=$(curl --silent --output /tmp/lambda-safe-invalid-result.json --write-out '%{http_code}' -H 'content-type: application/json' --data-binary @/tmp/lambda-safe-invalid.json http://127.0.0.1:3000/v1/compile)
+          test "$status" = "422"
+          jq -e '(.artifacts == null) or ((.artifacts | has("manifest")) | not)' /tmp/lambda-safe-invalid-result.json
+          if curl --fail --silent --max-time 2 http://127.0.0.1:8080/v1/info >/dev/null; then
+            echo "Compiler API unexpectedly reachable on host port 8080" >&2
+            exit 1
+          fi
