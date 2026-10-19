@@ -48,7 +48,7 @@ $token = [Convert]::ToHexString($bytes).ToLowerInvariant()
 docker compose up --build
 ```
 
-Open **http://localhost:3000**. The UI is published only on loopback
+Open **http://localhost:3001**. The UI is published only on loopback
 (`127.0.0.1`). The compiler is not published on a host port; it is reachable
 only over the private Compose network through the UI proxy. The UI proxy reads
 the same Docker secret and forwards the Bearer token server-side; the browser
@@ -69,9 +69,9 @@ docker compose logs -f compiler ui
 docker compose ps
 
 # Check UI health and the proxied compiler endpoints
-curl -fsS http://localhost:3000/healthz
-curl -fsS http://localhost:3000/readyz
-curl -fsS http://localhost:3000/v1/info
+curl -fsS http://localhost:3001/healthz
+curl -fsS http://localhost:3001/readyz
+curl -fsS http://localhost:3001/v1/info
 
 # Stop and remove containers/network
 docker compose down
