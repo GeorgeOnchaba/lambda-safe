@@ -6,7 +6,7 @@ RUN cargo build --locked --release -p lambda-safe-service -p lambda-safe-cli
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates z3 \
+    && apt-get install --yes --no-install-recommends ca-certificates curl z3 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 lambda-safe \
     && useradd --system --uid 10001 --gid lambda-safe --home-dir /nonexistent lambda-safe
