@@ -9,6 +9,69 @@ every required obligation succeeds.
 This repository is the complete open-source v0.1 reference implementation. It
 is independently usable and does not require the proprietary NiGeNje platform.
 
+## One-command UI + backend
+
+The official local stack composes this repository's compiler service with the
+separate open-source UI repository
+[GeorgeOnchaba/lambda-safe-fe](https://github.com/GeorgeOnchaba/lambda-safe-fe).
+
+### Prerequisites
+
+- Docker Engine and the Docker Compose plugin.
+- Git.
+- OpenSSL for a high-entropy local service token (or use the PowerShell recipe below).
+- No hosted compiler API, hosted model, cloud account, or enterprise service.
+
+### Start
+
+Clone the two public repositories as sibling directories:
+
+```bash
+mkdir lambda-safe-stack && cd lambda-safe-stack
+git clone https://github.com/GeorgeOnchaba/lambda-safe.git
+git clone https://github.com/GeorgeOnchaba/lambda-safe-fe.git
+cd lambda-safe
+mkdir -p secrets
+openssl rand -hex 32 > secrets/lambda-safe-api-token
+chmod 600 secrets/lambda-safe-api-token
+```
+
+PowerShell alternative for token creation:
+
+```powershell
+New-Item -ItemType Directory -Force secrets | Out-Null
+$bytes = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+$token = [Convert]::ToHexString($bytes).ToLowerInvariant()
+[System.IO.File]::WriteAllText((Join-Path (Get-Location) 'secrets/lambda-safe-api-token'), $token)
+```
+
+Build and start both services using **one Compose command**:
+
+```bash
+docker compose up --build
+```
+
+Open http://localhost:3000. The backend is not published on the host; it can
+only be reached over the private Compose network by the UI proxy. Stop with
+`Ctrl+C` or `docker compose down`.
+
+Compose expects the frontend repository at `../lambda-safe-fe` relative to
+this repository. The UI proxy reads the token file and forwards it only to the
+internal compiler API.
+
+### What the UI supports
+
+- Compiler health and identity display.
+- λ-language, JSON projection and auto-detect request formats.
+- Static checking and solver-backed compilation.
+- Valid and failing sample contracts.
+- Structured diagnostics and complete API response inspection.
+- Manifest and λ-certificate views and JSON downloads.
+- Calling the certificate/manifest integrity verification endpoint.
+
+The UI is an API client. It does not reimplement or weaken compiler certification.
+
 ## Hard law
 
 Certification requires all of the following:
@@ -20,8 +83,7 @@ Certification requires all of the following:
 5. Every hard expression lies inside quantifier-free linear integer arithmetic.
 6. The hard assumption context `Γ` is feasible: `SAT(Γ)`.
 7. Every hard invariant `I` is valid: `UNSAT(Γ ∧ ¬I)`.
-8. Every declared transition branch is feasible and preserves every named hard
-   invariant.
+8. Every declared transition branch is feasible and preserves every named hard invariant.
 9. Every linear token is consumed exactly once.
 10. Canonicalization and artifact construction succeed.
 
@@ -35,23 +97,17 @@ A λ-certificate records reproducible evidence that the declared hard
 obligations were discharged under the exact canonical assumptions, compiler,
 solver, strategy registry and theory recorded in the artifact.
 
-It is not:
-
-- a theorem about an unmodelled application;
-- evidence that telemetry is truthful;
-- a guarantee of future runtime behavior;
-- a replacement for runtime enforcement or consensus;
-- a proof-assistant-checked compiler-correctness theorem.
-
-The compiler implementation and selected SMT solver remain in the trusted
-computing base. See [Trust model](docs/trust-model.md).
+It is not a theorem about an unmodelled application, evidence that telemetry is
+truthful, a guarantee of future runtime behavior, a replacement for runtime
+enforcement or consensus, or a proof-assistant-checked compiler-correctness
+theorem. The compiler implementation and selected SMT solver remain in the
+trusted computing base. See [Trust model](docs/trust-model.md).
 
 ## Supported v0.1 surface
 
 - Boolean logic: `!`, `&&`, `||`, `=>`.
 - Equality and ordering: `==`, `!=`, `<`, `<=`, `>`, `>=`.
-- Linear integer arithmetic: `+`, `-`, and multiplication by a dimensionless
-  compile-time integer.
+- Linear integer arithmetic: `+`, `-`, and multiplication by a dimensionless compile-time integer.
 - Named units with positive integer base-unit scaling.
 - Boolean and bounded or unbounded integer inputs.
 - `control_plane`, `trusted_report`, `predictive` and `unsupported` authority.
@@ -75,105 +131,20 @@ v0.1 hard fragment.
 | `lambda-safe-solver` | Solver trait, SMT-LIB emitter, Z3 adapter and bounded reference solver |
 | `lambda-safe-emit` | RFC 8785/JCS canonicalization, digests, certificates and signatures |
 | `lambda-safe-compiler` | Public library facade and fail-closed pipeline |
-| `lambda-safe-cli` | `lambda-safe` command-line interface |
+| `lambda-safe-cli` | Command-line interface |
 | `lambda-safe-service` | Stateless Axum HTTP service |
-
-The repository also includes JSON Schemas, valid and invalid examples,
-conformance/adversarial/property/stress tests, fuzz targets, scale benchmarks, CI, container
-and Kubernetes resources, and a research traceability matrix.
-
-## Prerequisites
-
-- Rust 1.85 or newer with the 2024 edition.
-- Z3 available as `z3` for the standard unbounded solver path.
-- Docker or another OCI runtime for the container workflow.
-
-The finite solver is exact only when every referenced integer has explicit
-lower and upper bounds. It is intended for conformance, small offline contracts
-and environments where Z3 is unavailable.
 
 ## Build and test
 
 ```bash
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
-cargo build --workspace --release
-```
-
-Run the complete local verification script:
-
-```bash
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --all-features --locked
+cargo build --workspace --release --locked
 ./scripts/verify.sh
 ```
 
-## Compile a contract
-
-Using Z3:
-
-```bash
-cargo run -p lambda-safe-cli -- \
-  --solver z3 \
-  compile \
-  --input examples/valid/capacity.lambda \
-  --output artifacts/capacity
-```
-
-Using the bounded reference solver:
-
-```bash
-cargo run -p lambda-safe-cli -- \
-  --solver finite \
-  compile \
-  --input examples/valid/capacity.lambda \
-  --output artifacts/capacity
-```
-
-Successful compilation writes:
-
-```text
-artifacts/capacity/
-├── compile-result.json
-├── lambda-certificate.json
-└── manifest.json
-```
-
-Rejected and indeterminate compilations print a structured result but do not
-create hard artifacts.
-
-The CLI treats an artifact directory as immutable: it refuses an existing
-output path, writes all three files in a private staging directory and publishes
-the directory with one rename only after every write succeeds.
-
-## Other CLI operations
-
-```bash
-# Static gates only; no solver required
-lambda-safe check --input examples/valid/capacity.lambda
-
-# Verify digests and an optional Ed25519 signature
-lambda-safe verify \
-  --manifest artifacts/capacity/manifest.json \
-  --certificate artifacts/capacity/lambda-certificate.json
-
-# Print implementation/solver identity
-lambda-safe --solver z3 info
-
-# Print a bundled schema
-lambda-safe schema contract
-```
-
-CLI exit codes are stable: `0` success, `2` malformed/unsupported/authority,
-`3` counterexample or infeasible context, `4` indeterminate, `5` invalid
-artifact and `70` execution/configuration failure.
-
-## HTTP service
-
-```bash
-cargo run -p lambda-safe-service
-```
-
-Endpoints:
+## HTTP API
 
 - `GET /healthz`
 - `GET /readyz`
@@ -182,70 +153,19 @@ Endpoints:
 - `POST /v1/compile`
 - `POST /v1/certificates/verify`
 
-Example request:
-
-```json
-{
-  "source": {
-    "format": "lambda",
-    "content": "lambda_safe \"0.1\"; contract demo version \"1\" { unit count; input x: int<count> authority control_plane range [0, 2]; assume a hard: x <= x; invariant i hard: x <= x; }"
-  }
-}
-```
-
-Configuration is described in [HTTP API](docs/api.md).
-
-Compilation is resource bounded: input size, expression nesting/nodes,
-declarations, generated obligations, concurrent HTTP requests, finite-domain
-states, each solver call, and the complete compilation wall-clock budget all have explicit limits.
-The default whole-compilation budget is 30 seconds (`LAMBDA_SAFE_MAX_COMPILE_MS=30000`),
-so many individually legal solver obligations cannot accumulate into an unbounded worker hold.
-
-## Optional certificate signing
-
-Create a file containing exactly 64 hexadecimal characters representing a
-32-byte Ed25519 secret key, restrict its filesystem permissions, then use:
-
-```bash
-lambda-safe --solver z3 compile \
-  --input contract.lambda \
-  --output artifacts/contract \
-  --signing-key-file /secure/path/lambda-safe.key
-```
-
-Signing creates an Ed25519 signature over the certificate digest. Offline
-verification checks it against the public key embedded in the artifact; this
-does not establish producer identity or strengthen the logical result. The
-service reads the same key through
-`LAMBDA_SAFE_SIGNING_KEY_FILE`. Production key generation and custody should use
-an approved KMS or HSM workflow.
-
-## Research artifact
-
-The repository supports the MSc research concept *Design, Implementation and
-Evaluation of a λ-Safe Compiler for Decidable Invariant Certification in
-Distributed Control Planes*. Implementation claims, research objectives and
-tests are mapped in [Research traceability](docs/research-traceability.md).
-The generated 120-case matrix is a reproducible implementation corpus; formal
-independent adjudication remains a research procedure and is not falsely
-claimed by this software release.
+The API is stateless and applies source/body and expression limits. Read
+[HTTP API](docs/api.md) and [SECURITY.md](SECURITY.md) before deployment.
 
 ## Open-source boundary
 
-All soundness-critical semantics, parsers, checks, solver interfaces, hard
-artifacts, certificate verification, CLI and service code are open. A future
-commercial edition may add hosting, tenancy, enterprise integrations, key
-management and governance workflows, but cannot redefine hard eligibility or
-λ-certificate meaning.
+The free repository includes soundness-critical language semantics, parser,
+checks, solver interfaces, canonical hard artifacts, certificate verification,
+CLI, HTTP service, schemas, tests, docs and the local UI client. The UI is MIT;
+compiler core is Apache-2.0. The licenses do not grant rights to NiGeNje
+trademarks.
 
-## Security and responsible disclosure
-
-Read [SECURITY.md](SECURITY.md) before deploying the service or reporting a
-vulnerability. The service is stateless, applies source/body and expression
-limits, performs no remote fetches and fails readiness when its configured Z3
-binary cannot be discovered.
-
-## Licence
-
-Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). The licence does
-not grant rights to NiGeNje trademarks.
+A future commercial edition may add hosting, tenancy, enterprise integrations,
+key management and governance workflows, but cannot redefine hard eligibility
+or λ-certificate meaning. This boundary is a repository policy, not a guarantee
+that private code can never leak: contributions still require review and secret
+and dependency scanning.

@@ -1,19 +1,29 @@
+name: lambda-safe
+
 services:
   compiler:
     build:
       context: .
+      dockerfile: Dockerfile
     image: nigenje/lambda-safe-compiler:0.1.0
+    restart: unless-stopped
     read_only: true
     tmpfs:
-      - /tmp:size=16m,mode=1777
-    ports:
-      - "127.0.0.1:8080:8080"
+      - /tmp:size=32m,mode=1777
+    expose:
+      - "8080"
     environment:
+      LAMBDA_SAFE_BIND: "0.0.0.0:8080"
+      LAMBDA_SAFE_API_TOKEN_FILE: "/run/secrets/lambda-safe-api-token"
       LAMBDA_SAFE_TIMEOUT_MS: "5000"
+      LAMBDA_SAFE_MAX_COMPILE_MS: "30000"
       LAMBDA_SAFE_MAX_SOURCE_BYTES: "1048576"
       LAMBDA_SAFE_MAX_BODY_BYTES: "1200000"
       LAMBDA_SAFE_MAX_SOLVER_OBLIGATIONS: "2048"
-      LAMBDA_SAFE_MAX_CONCURRENT_REQUESTS: "32"
+      LAMBDA_SAFE_MAX_CONCURRENT_REQUESTS: "16"
+      RUST_LOG: "info"
+    secrets:
+      - lambda-safe-api-token
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -27,3 +37,48 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
+    networks:
+      - internal
+
+  ui:
+    build:
+      context: ../lambda-safe-fe
+      dockerfile: Dockerfile
+    image: nigenje/lambda-safe-ui:0.1.0
+    restart: unless-stopped
+    depends_on:
+      compiler:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:8080"
+    environment:
+      LAMBDA_SAFE_API_TARGET: "http://compiler:8080"
+      LAMBDA_SAFE_API_TOKEN_FILE: "/run/secrets/lambda-safe-api-token"
+    secrets:
+      - lambda-safe-api-token
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+secrets:
+  lambda-safe-api-token:
+    file: ./secrets/lambda-safe-api-token
