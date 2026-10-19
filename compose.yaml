@@ -42,7 +42,9 @@ services:
 
   ui:
     build:
-      context: ../lambda-safe-fe
+      # Fetch the UI from its independent repository. No sibling checkout or
+      # combined source tree is required to build the complete local stack.
+      context: https://github.com/GeorgeOnchaba/lambda-safe-fe.git#main
       dockerfile: Dockerfile
     image: nigenje/lambda-safe-ui:0.1.0
     restart: unless-stopped
