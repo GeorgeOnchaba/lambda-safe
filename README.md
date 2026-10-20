@@ -11,54 +11,87 @@ is independently usable and does not require the proprietary NiGeNje platform.
 
 ## One-command UI + backend
 
-The official local stack composes this repository's compiler service with the
-separate open-source UI repository
-[GeorgeOnchaba/lambda-safe-fe](https://github.com/GeorgeOnchaba/lambda-safe-fe).
+The local stack runs this compiler service with the separate open-source UI
+repository [GeorgeOnchaba/lambda-safe-fe](https://github.com/GeorgeOnchaba/lambda-safe-fe).
+The repositories remain independent: Compose builds the backend from this
+checkout and fetches the frontend from its own Git repository as a remote build
+context. No monorepo or sibling frontend checkout is required.
 
 ### Prerequisites
 
-- Docker Engine and the Docker Compose plugin.
-- Git.
-- OpenSSL for a high-entropy local service token (or use the PowerShell recipe below).
+- Docker Engine / Docker Desktop with Docker Compose v2.
+- OpenSSL for a high-entropy local service token, or use the PowerShell recipe below.
+- Internet access for the initial frontend build.
 - No hosted compiler API, hosted model, cloud account, or enterprise service.
 
 ### Start
 
-Clone the two public repositories as sibling directories:
+Clone only the backend repository and create a local API token:
 
 ```bash
-mkdir lambda-safe-stack && cd lambda-safe-stack
 git clone https://github.com/GeorgeOnchaba/lambda-safe.git
-git clone https://github.com/GeorgeOnchaba/lambda-safe-fe.git
 cd lambda-safe
 mkdir -p secrets
 openssl rand -hex 32 > secrets/lambda-safe-api-token
-chmod 600 secrets/lambda-safe-api-token
+chmod 644 secrets/lambda-safe-api-token
+docker compose up --build
 ```
 
-PowerShell alternative for token creation:
+PowerShell alternative for token creation (works in Windows PowerShell 5.1 and
+PowerShell 7+):
 
 ```powershell
 New-Item -ItemType Directory -Force secrets | Out-Null
 $bytes = New-Object byte[] 32
-[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-$token = [Convert]::ToHexString($bytes).ToLowerInvariant()
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes)
+$rng.Dispose()
+$token = -join ($bytes | ForEach-Object { $_.ToString('x2') })
 [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'secrets/lambda-safe-api-token'), $token)
-```
-
-Build and start both services using **one Compose command**:
-
-```bash
 docker compose up --build
 ```
 
-Open http://localhost:3000. The backend is not published on the host; it can
-only be reached over the private Compose network by the UI proxy. Stop with
-`Ctrl+C` or `docker compose down`.
+Open **http://localhost:3001**. The UI is published only on loopback
+(`127.0.0.1`). The compiler is not published on a host port; it is reachable
+only over the private Compose network through the UI proxy. The UI proxy reads
+the same Docker secret and forwards the Bearer token server-side; the browser
+never receives the token.
 
-Compose expects the frontend repository at `../lambda-safe-fe` relative to
-this repository. The UI proxy reads the token file and forwards it only to the
-internal compiler API.
+Stop with `Ctrl+C` or run `docker compose down`.
+
+### Useful commands
+
+```bash
+# Run in the background
+docker compose up --build -d
+
+# Follow logs
+docker compose logs -f compiler ui
+
+# Inspect container state
+docker compose ps
+
+# Check UI health and the proxied compiler endpoints
+curl -fsS http://localhost:3001/healthz
+curl -fsS http://localhost:3001/readyz
+curl -fsS http://localhost:3001/v1/info
+
+# Stop and remove containers/network
+docker compose down
+
+# Rebuild without cached layers
+docker compose build --no-cache
+docker compose up
+```
+
+### Local security notes
+
+- The token file under `secrets/` is ignored by Git and the backend Docker build context.
+- Generate a different high-entropy token for each local environment.
+- Both services run as UID 10001. On Linux, file-backed Compose secrets preserve host permissions, so the local demo token must be readable by that UID (`0644`). Keep the token out of version control; this demo setup is not a production secret-management pattern.
+- Do not publish port 8080 or remove the private network boundary.
+- This Compose configuration is for local development and demonstration, not a production deployment.
+- The remote frontend build context currently tracks the frontend repository's `main` branch. For a reproducible release, pin it to a reviewed commit SHA after the complete stack has been tested.
 
 ### What the UI supports
 
@@ -169,3 +202,4 @@ key management and governance workflows, but cannot redefine hard eligibility
 or λ-certificate meaning. This boundary is a repository policy, not a guarantee
 that private code can never leak: contributions still require review and secret
 and dependency scanning.
+

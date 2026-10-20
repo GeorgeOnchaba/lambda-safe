@@ -32,7 +32,7 @@ services:
     mem_limit: 512m
     cpus: 2.0
     healthcheck:
-      test: ["CMD", "/usr/local/bin/lambda-safe", "--solver", "finite", "info"]
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8080/healthz"]
       interval: 15s
       timeout: 3s
       retries: 3
@@ -42,7 +42,9 @@ services:
 
   ui:
     build:
-      context: ../lambda-safe-fe
+      # Fetch the UI from its independent repository. No sibling checkout or
+      # combined source tree is required to build the complete local stack.
+      context: https://github.com/GeorgeOnchaba/lambda-safe-fe.git#main
       dockerfile: Dockerfile
     image: nigenje/lambda-safe-ui:0.1.0
     restart: unless-stopped
@@ -50,7 +52,7 @@ services:
       compiler:
         condition: service_healthy
     ports:
-      - "127.0.0.1:3000:8080"
+      - "127.0.0.1:3001:8080"
     environment:
       LAMBDA_SAFE_API_TARGET: "http://compiler:8080"
       LAMBDA_SAFE_API_TOKEN_FILE: "/run/secrets/lambda-safe-api-token"
