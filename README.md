@@ -33,7 +33,7 @@ git clone https://github.com/GeorgeOnchaba/lambda-safe.git
 cd lambda-safe
 mkdir -p secrets
 openssl rand -hex 32 > secrets/lambda-safe-api-token
-chmod 600 secrets/lambda-safe-api-token
+chmod 644 secrets/lambda-safe-api-token
 docker compose up --build
 ```
 
@@ -85,6 +85,7 @@ docker compose up
 
 - The token file under `secrets/` is ignored by Git and the backend Docker build context.
 - Generate a different high-entropy token for each local environment.
+- Both services run as UID 10001. On Linux, file-backed Compose secrets preserve host permissions, so the local demo token must be readable by that UID (`0644`). Keep the token out of version control; this demo setup is not a production secret-management pattern.
 - Do not publish port 8080 or remove the private network boundary.
 - This Compose configuration is for local development and demonstration, not a production deployment.
 - The remote frontend build context currently tracks the frontend repository's `main` branch. For a reproducible release, pin it to a reviewed commit SHA after the complete stack has been tested.
@@ -198,3 +199,4 @@ key management and governance workflows, but cannot redefine hard eligibility
 or λ-certificate meaning. This boundary is a repository policy, not a guarantee
 that private code can never leak: contributions still require review and secret
 and dependency scanning.
+

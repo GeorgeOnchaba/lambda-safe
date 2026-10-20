@@ -50,9 +50,16 @@ jobs:
         run: |
           mkdir -p secrets
           openssl rand -hex 32 > secrets/lambda-safe-api-token
-          chmod 600 secrets/lambda-safe-api-token
+          # File-backed Compose secrets retain host permissions; both services run as UID 10001.
+          chmod 644 secrets/lambda-safe-api-token
       - name: Start integrated Compose stack
-        run: docker compose up --build --detach
+        run: |
+          if ! docker compose up --build --detach; then
+            docker compose ps --all || true
+            docker compose logs --no-color || true
+            docker compose down --volumes --remove-orphans || true
+            exit 1
+          fi
       - name: Exercise UI-to-compiler integration
         shell: bash
         run: |
@@ -91,3 +98,4 @@ jobs:
             echo "Compiler API unexpectedly reachable on host port 8080" >&2
             exit 1
           fi
+
