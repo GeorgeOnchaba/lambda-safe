@@ -38,7 +38,7 @@ jobs:
           format: spdx-json
           output-file: source.spdx.json
       - name: Attest source archive
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: ../nigenje-lambda-safe-compiler-open-${{ github.ref_name }}.zip
       - uses: softprops/action-gh-release@v2
