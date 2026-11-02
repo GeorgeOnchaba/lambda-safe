@@ -203,3 +203,14 @@ or λ-certificate meaning. This boundary is a repository policy, not a guarantee
 that private code can never leak: contributions still require review and secret
 and dependency scanning.
 
+
+## Open-core boundary
+
+Lambda Safe Core (this repository) is the **only open-source project in the NiGeNje ecosystem** and is licensed under Apache-2.0. Lambda Safe Enterprise is a separate **proprietary commercial product**; its source, architecture, implementation details and documentation are not part of this repository and are not licensed under this project's open-source license. Nothing in this repository grants rights to Enterprise technology.
+
+See docs/OPEN_CORE_BOUNDARIES.md for the precise boundary.
+
+## Sponsorship
+
+Sponsorship of Lambda Safe Core supports open-source maintenance, security maintenance, CI infrastructure, documentation and community support. Sponsorship is voluntary open-source funding; it is not a purchase of enterprise support, warranty or contractual service level. A funding link will be published only after the owner's GitHub Sponsors profile is activated and verified.
+
